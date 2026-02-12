@@ -8,7 +8,7 @@ from pathlib import Path
 
 # --- CONFIGURAÇÃO DE IMPORTAÇÃO ---
 try:
-    BASE_DIR = Path(_file_).resolve().parent.parent
+    BASE_DIR = Path(__file__).resolve().parent.parent
 except NameError:
     import os
     BASE_DIR = Path(os.getcwd()).parent if 'social' in os.getcwd() else Path(os.getcwd()) / 'backend_etl' / 'scripts'
@@ -211,10 +211,8 @@ if __name__ == "__main__":
         df_final = garantir_continuidade_temporal(df_final)
 
         print(f"\n📤 Atualizando {len(df_final)} linhas recentes no BigQuery...")
-        # ATENÇÃO: Se rodar todo mês, você pode querer 'append' ou 'replace' dependendo da estratégia. 
         # Como o script mensal baixa TUDO do PBF, 'replace' é mais seguro para não duplicar, 
-        # mas lembre-se de rodar o Histórico DEPOIS com 'append' se for recriar a tabela do zero.
-        # Ou melhor: Use 'replace' aqui para limpar a base e garantir consistência, e rode o histórico PAB em seguida.
+        # Use 'replace' aqui para limpar a base e garantir consistência, e rode o histórico PAB em seguida.
         
         utils.subir_para_bigquery(df=df_final, dataset=DATASET_ID, tabela=TABELA_ID, if_exists='replace')
         print("✨ Tabela PBF/CadÚnico atualizada com sucesso!")

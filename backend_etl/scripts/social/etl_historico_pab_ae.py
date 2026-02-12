@@ -10,7 +10,7 @@ from pathlib import Path
 
 # --- CONFIGURAÇÃO DE IMPORTAÇÃO ---
 try:
-    BASE_DIR = Path(_file_).resolve().parent.parent
+    BASE_DIR = Path(__file__).resolve().parent.parent
 except NameError:
     import os
     BASE_DIR = Path(os.getcwd()).parent if 'social' in os.getcwd() else Path(os.getcwd()) / 'backend_etl' / 'scripts'
