@@ -1,0 +1,14 @@
+
+# Ignorar dados pesados e temporários
+data/
+_pycache_/
+*.csv
+*.xlsx
+*.parquet
+*.pdf
+
+# Ignorar configurações de ambiente e senhas
+.env
+.streamlit/secrets.toml
+service_account.json
+*.json

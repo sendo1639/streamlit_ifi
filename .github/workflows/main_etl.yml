@@ -1,0 +1,40 @@
+name: Executar Pipeline de Dados IFI
+
+on:
+  schedule:
+    - cron: '0 9 * * *' # Todo dia às 06:00 AM (Horário de Brasília)
+  workflow_dispatch: # Permite rodar manualmente clicando em um botão no GitHub
+
+jobs:
+  run-etl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalar Dependências
+        run: |
+          pip install pandas requests google-cloud-bigquery pandas-gbq openpyxl pyarrow google-auth
+
+      - name: Autenticação Google Cloud
+        run: |
+          echo '${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}' > bq_key.json
+          # Define a variável de ambiente para os scripts Python lerem
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$GITHUB_WORKSPACE/bq_key.json" >> $GITHUB_ENV
+
+      - name: ETL 1 - Macroeconômico (BCB)
+        run: python backend_etl/scripts/etl_bcb.py
+
+      - name: ETL 2 - Fiscal (RTN)
+        run: python backend_etl/scripts/etl_rtn.py
+
+      - name: ETL 3 - Social Mensal (Replace)
+        run: python backend_etl/scripts/etl_social.py
+
+      - name: ETL 4 - Social Histórico (Append)
+        run: python backend_etl/scripts/etl_historico_pab_ae.py
