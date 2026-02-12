@@ -5,3 +5,4 @@ pandas-gbq
 openpyxl
 pyarrow
 google-auth
+unicode
