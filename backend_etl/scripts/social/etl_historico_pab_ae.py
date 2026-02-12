@@ -10,10 +10,10 @@ from pathlib import Path
 
 # --- CONFIGURAÇÃO DE IMPORTAÇÃO ---
 try:
+    # Correção: __file__ (dois underscores)
     BASE_DIR = Path(__file__).resolve().parent.parent
 except NameError:
-    import os
-    BASE_DIR = Path(os.getcwd()).parent if 'social' in os.getcwd() else Path(os.getcwd()) / 'backend_etl' / 'scripts'
+    BASE_DIR = Path(os.getcwd()) / 'backend_etl' / 'scripts'
 
 if str(BASE_DIR) not in sys.path:
     sys.path.append(str(BASE_DIR))
@@ -21,9 +21,11 @@ if str(BASE_DIR) not in sys.path:
 try:
     import utils
     import transformations as tr
-except ImportError:
-    print(f"❌ Erro: Não encontrei 'utils.py' na pasta: {BASE_DIR}")
-    sys.exit()
+except ImportError as e:
+    # Agora a mensagem dirá EXATAMENTE qual biblioteca falta (ex: unidecode)
+    print(f"❌ Erro de Importação: {e}")
+    print(f"Verifique se todas as bibliotecas (pip install) estão no arquivo .yml")
+    sys.exit(1)
 
 warnings.filterwarnings("ignore")
 
