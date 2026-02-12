@@ -4,6 +4,10 @@ import pandas as pd
 import sys
 import os
 import time
+import streamlit as st
+from query_engine import get_status_atualizacao
+from datetime import datetime
+
 
 # 1. Importe a sua função de estilo
 from interface_utils import configurar_interface_ifi
@@ -58,6 +62,7 @@ def criar_sparkline(df, coluna_data, coluna_valor, cor_linha):
 st.title("IFI")
 st.markdown("### Resumo dos indicadores. Navegue entre as páginas para explorar os dados e baixá-los.")
 st.divider()
+
 
 # --- CARREGAMENTO DE DADOS ---
 df_macro = carregar_dados_macro()
@@ -212,9 +217,40 @@ with col_soc:
         )
 
 
+df_status = get_status_atualizacao()
+
+if not df_status.empty:
+    # Captura a data da última carga no BigQuery [cite: 51]
+    data_carga = df_status['ultima_carga'].max()
+    data_formatada = data_carga.strftime('%d/%m/%Y às %H:%M')
+    
+    # CSS para fixar o texto no final da sidebar [cite: 37, 38]
+    st.sidebar.markdown(
+        f"""
+        <style>
+            .sidebar-footer {{
+                position: fixed;
+                bottom: 15px;
+                left: 15px;
+                font-size: 11px;
+                color: #6c757d; /* Cinza discreto */
+                font-family: 'sans-serif';
+            }}
+        </style>
+        <div class="sidebar-footer">
+            Última coleta de dados feita: <br>
+            <b>{data_formatada}</b>
+        </div>
+        """, 
+        unsafe_allow_html=True
+)
+
+
+
 # ==============================================================================
 # MOTOR DO CARROSSEL
 # ==============================================================================
 time.sleep(5)
 st.session_state.fiscal_index = (st.session_state.fiscal_index + 1) % len(lista_fiscal)
 st.rerun()
+

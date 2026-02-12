@@ -84,6 +84,7 @@ def processar_pab_legacy(config):
         
         
         df_long['origem_dado'] = '(Auxílio Brasil/Emergencial)' 
+        df_long = tr.adicionar_metadados(df_long, fonte_dado='MDS (Bolsa Família/CadÚnico)')
         # ----------------------------
 
         df_long = df_long[df_long['valor'] > 0]

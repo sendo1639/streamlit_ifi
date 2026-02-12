@@ -31,6 +31,8 @@ if str(BASE_DIR) not in sys.path:
 
 try:
     import utils
+    import transformations as tr
+    
 except ImportError:
     logger.critical(f"Módulo 'utils.py' não encontrado em: {BASE_DIR}")
     sys.exit(1)
@@ -137,9 +139,12 @@ def processar_serie_bcb(codigo_sgs: str, nome_indicador: str) -> pd.DataFrame:
         df['codigo_sgs'] = codigo_sgs
         df['nome_variavel'] = nome_indicador
         df['fonte'] = 'Banco Central (SGS)'
+        df = tr.adicionar_metadados(df, fonte_dado='BCB - SGS')
         
         # Limpeza
         df = df.dropna(subset=['data', 'valor']).drop_duplicates()
+        df = tr.normalizar_colunas(df)
+        
         
         return df
         

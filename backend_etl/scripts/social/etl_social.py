@@ -107,6 +107,7 @@ def processar_consulta_brasil(config):
      
       
         df_long = garantir_continuidade_temporal(df_long)
+        df_long = tr.adicionar_metadados(df_long, fonte_dado='MDS (Bolsa Família/CadÚnico)')
         print(f"✅ Sucesso! ({len(df_long)} linhas)")
         return df_long
         
@@ -145,7 +146,7 @@ CONFIG_CONSULTAS = [
     },
     {
         "nome": "CadUnico - Pessoas com Deficiencia",
-        "ativo": False, 
+        "ativo": True, 
         "shift_padrao": 0, "ajuste_especifico": {},
         "params": {
             'q': '*:*', 'wt': 'csv', 'rows': '10000000', 'sort': 'anomes desc, codigo_ibge asc',
@@ -174,21 +175,18 @@ CONFIG_CONSULTAS = [
                    'fl': 'anomes,qtd_pessoas_beneficiarias_bolsa_familia_i'}
     },
     {
-        # RECUPERADO: Este é o item que faltava!
         "nome": "Bolsa Família- Pessoas por Faixa Etaria e sexo", "ativo": True,
         "shift_padrao": 1, "ajuste_especifico": {},
         "params": {'q': '*:*', 'wt': 'csv', 'rows': '10000000', 'sort': 'anomes desc', 'fq': 'anomes:*',
                    'fl': 'anomes,qtd_pes_pbf_idade_0_e_4_sexo_feminino_i,qtd_pes_pbf_idade_0_e_4_sexo_masculino_i,qtd_pes_pbf_idade_5_a_6_sexo_feminino_i,qtd_pes_pbf_idade_5_a_6_sexo_masculino_i,qtd_pes_pbf_idade_7_a_15_sexo_feminino_i,qtd_pes_pbf_idade_7_a_15_sexo_masculino_i,qtd_pes_pbf_idade_16_a_17_sexo_feminino_i,qtd_pes_pbf_idade_16_a_17_sexo_masculino_i,qtd_pes_pbf_idade_18_a_24_sexo_feminino_i,qtd_pes_pbf_idade_18_a_24_sexo_masculino_i,qtd_pes_pbf_idade_25_a_34_sexo_feminino_i,qtd_pes_pbf_idade_25_a_34_sexo_masculino_i,qtd_pes_pbf_idade_35_a_39_sexo_feminino_i,qtd_pes_pbf_idade_35_a_39_sexo_masculino_i,qtd_pes_pbf_idade_40_a_44_sexo_feminino_i,qtd_pes_pbf_idade_40_a_44_sexo_masculino_i,qtd_pes_pbf_idade_45_a_49_sexo_feminino_i,qtd_pes_pbf_idade_45_a_49_sexo_masculino_i,qtd_pes_pbf_idade_50_a_54_sexo_feminino_i,qtd_pes_pbf_idade_50_a_54_sexo_masculino_i,qtd_pes_pbf_idade_55_a_59_sexo_feminino_i,qtd_pes_pbf_idade_55_a_59_sexo_masculino_i,qtd_pes_pbf_idade_60_a_64_sexo_feminino_i,qtd_pes_pbf_idade_60_a_64_sexo_masculino_i,qtd_pes_pbf_idade_maior_que_65_sexo_feminino_i,qtd_pes_pbf_idade_maior_que_65_sexo_masculino_i'}
     },
     {
-        # SEPARADO: Unipessoais do Bolsa Família
         "nome": "Bolsa Família - Percentual Famílias Unipessoais", "ativo": True,
         "shift_padrao": 0, "ajuste_especifico": {"cadunico_qtd_fam_1_integrante_benef_pabpbf_i": 1},
         "params": {'q': '*:*', 'wt': 'csv', 'rows': '10000000', 'sort': 'anomes_s desc, codigo_ibge asc', 'fq': 'anomes_s:*',
                    'fl': 'anomes,cadunico_qtd_fam_1_integrante_benef_pabpbf_i,qtd_familias_beneficiarias_bolsa_familia_s'}
     },
     {
-        # SEPARADO: Condicionalidades
         "nome": "Bolsa Família - Condicionalidades", "ativo": True,
         "shift_padrao": 0, "ajuste_especifico": {},
         "params": {'q': '*:*', 'wt': 'csv', 'rows': '10000000', 'sort': 'anomes_s desc, codigo_ibge asc', 'fq': 'anomes_s:*',

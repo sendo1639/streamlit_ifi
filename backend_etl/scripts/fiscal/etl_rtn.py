@@ -30,6 +30,12 @@ try:
 except ImportError:
     logger.critical(f"Erro: 'utils.py' não encontrado em {BASE_DIR}.")
     sys.exit(1)
+    
+try:
+    import transformations as tr
+except ImportError: 
+    logger.critical(f"Erro: 'utils.py' não encontrado em {BASE_DIR}.")
+    sys.exit(1)
 
 warnings.filterwarnings("ignore")
 
@@ -109,6 +115,7 @@ def transform_wide_to_long(df: pd.DataFrame, table_name: str) -> pd.DataFrame:
     # 3. Tratamento de Nomes
     df_long = df_long.rename(columns={col_rubrica: 'rubrica'})
     df_long['rubrica'] = df_long['rubrica'].astype(str).str.strip()
+    df_long = tr.adicionar_metadados(df_long, fonte_dado='RTN')
     
     # 4. Tratamento de Datas
     # Aplica o parser para string YYYY-MM-DD
@@ -124,7 +131,7 @@ def transform_wide_to_long(df: pd.DataFrame, table_name: str) -> pd.DataFrame:
     # 6. Tratamento de Valores
     df_long['valor'] = pd.to_numeric(df_long['valor'], errors='coerce')
     
-    return df_long[['rubrica', 'data_referencia', 'valor']]
+    return df_long[['rubrica', 'data_referencia', 'valor', 'data_carga', 'fonte', 'frequencia']]
 
 def fetch_rtn_data() -> io.BytesIO:
     """Baixa o arquivo Excel do Tesouro Nacional."""

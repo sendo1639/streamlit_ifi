@@ -3,6 +3,8 @@ import os
 import pandas as pd
 import streamlit as st
 from pathlib import Path
+import streamlit as st
+from datetime import datetime
 
 # ==============================================================================
 # 1. CONFIGURAÇÃO DE CAMINHOS (CORRIGIDA)
@@ -107,3 +109,34 @@ def carregar_dados_fiscais(tipo="reais"):
 # ==============================================================================
 def converter_para_csv(df):
     return df.to_csv(index=False).encode('utf-8')
+
+
+def get_status_atualizacao():
+    """
+    Busca as datas de carga mais recentes usando os nomes exatos do BigQuery.
+    """
+    client = get_bq_client()
+    
+    # Query ajustada conforme a imagem do seu banco de dados
+    sql = """
+    SELECT 'Macro' as dominio, MAX(data_carga) as ultima_carga, MAX(data) as referencia 
+    FROM `dados_macroeconomicos.banco_central_sgs`
+    
+    UNION ALL
+    
+    -- Usamos a tabela de valores reais como referência para o domínio Fiscal
+    SELECT 'Fiscal' as dominio, MAX(data_carga) as ultima_carga, MAX(data_referencia) as referencia 
+    FROM `dados_fiscais.rtn_valores_reais_ipca`
+    
+    UNION ALL
+    
+    -- Nome ajustado conforme aparece na sua aba do BigQuery
+    SELECT 'Social' as dominio, MAX(data_carga) as ultima_carga, MAX(data) as referencia 
+    FROM `dados_sociais.base_consolidada_pbf_cadun`
+    """
+    
+    try:
+        return client.query(sql).to_dataframe()
+    except Exception as e:
+        print(f"⚠️ Erro ao acessar tabelas: {e}")
+        return pd.DataFrame()

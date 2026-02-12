@@ -4,6 +4,9 @@ import unidecode
 import numpy as np
 import re
 
+# ==============================================================================
+# 1. PADRONIZAÇÃO DE NOMES (Colunas)
+# ==============================================================================
 def normalizar_colunas(df):
     """
     Padroniza nomes de colunas para snake_case.
@@ -26,6 +29,9 @@ def normalizar_colunas(df):
     df.columns = novas_colunas
     return df
 
+# ==============================================================================
+# 2. TRATAMENTO DE DATAS
+# ==============================================================================
 def tratar_data(df, nome_coluna, formato_origem='%Y%m'):
     """
     Converte coluna para datetime tratando sujeiras.
@@ -38,6 +44,9 @@ def tratar_data(df, nome_coluna, formato_origem='%Y%m'):
         print(f"⚠️ Aviso: Coluna '{nome_coluna}' não encontrada.")
     return df
 
+# ==============================================================================
+# 3. TRATAMENTO NUMÉRICO (Brasil -> Python)
+# ==============================================================================
 def limpar_float(valor):
     """
     Transforma formato brasileiro '1.200,50' em float 1200.50.
@@ -57,3 +66,28 @@ def limpar_float(valor):
         return float(v)
     except:
         return np.nan
+
+def tratar_numeros(df, lista_colunas):
+    """
+    Aplica a limpeza numérica em uma lista de colunas.
+    """
+    for col in lista_colunas:
+        if col in df.columns:
+            # Se a coluna já for numérica (float/int), não faz nada
+            if not pd.api.types.is_numeric_dtype(df[col]):
+                df[col] = df[col].apply(limpar_float)
+            else:
+                # Apenas garante float para consistência
+                df[col] = df[col].astype(float)
+    return df
+
+# ==============================================================================
+# 4. METADADOS E FINALIZAÇÃO
+# ==============================================================================
+def adicionar_metadados(df, fonte_dado):
+    """
+    Adiciona colunas de controle para o BigQuery.
+    """
+    df['data_carga'] = datetime.now()
+    df['fonte'] = fonte_dado
+    return df
