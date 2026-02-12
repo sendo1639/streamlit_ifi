@@ -1,0 +1,7 @@
+pandas
+requests
+google-cloud-bigquery
+pandas-gbq
+openpyxl
+pyarrow
+google-auth

@@ -18,8 +18,7 @@ jobs:
           python-version: '3.10'
 
       - name: Instalar Dependências
-        run: |
-          pip install pandas requests google-cloud-bigquery pandas-gbq openpyxl pyarrow google-auth
+        run: pip install -r requirements.txt
 
       - name: Autenticação Google Cloud
         run: |
@@ -28,13 +27,13 @@ jobs:
           echo "GOOGLE_APPLICATION_CREDENTIALS=$GITHUB_WORKSPACE/bq_key.json" >> $GITHUB_ENV
 
       - name: ETL 1 - Macroeconômico (BCB)
-        run: python backend_etl/scripts/etl_bcb.py
+        run: python backend_etl/scripts/macro/etl_bcb.py
 
       - name: ETL 2 - Fiscal (RTN)
-        run: python backend_etl/scripts/etl_rtn.py
+        run: python backend_etl/scripts/fiscal/etl_rtn.py
 
       - name: ETL 3 - Social Mensal (Replace)
-        run: python backend_etl/scripts/etl_social.py
+        run: python backend_etl/scripts/social/etl_social.py
 
       - name: ETL 4 - Social Histórico (Append)
-        run: python backend_etl/scripts/etl_historico_pab_ae.py
+        run: python backend_etl/scripts/social/etl_historico_pab_ae.py
