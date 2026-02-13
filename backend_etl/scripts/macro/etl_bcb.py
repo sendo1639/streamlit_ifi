@@ -22,26 +22,22 @@ logger = logging.getLogger(__name__)
 
 # Configuração de Importação
 try:
-    # O uso de __file__ garante que o caminho seja relativo ao arquivo, não ao comando executado
-    BASE_DIR = Path(__file__).resolve().parent.parent
+    BASE_DIR = Path(_file_).resolve().parent.parent
 except NameError:
-    BASE_DIR = Path(os.getcwd()) / 'backend_etl' / 'scripts'
+    BASE_DIR = Path(os.getcwd()).parent if 'macro' in os.getcwd() else Path(os.getcwd()) / 'backend_etl' / 'scripts'
 
 if str(BASE_DIR) not in sys.path:
     sys.path.append(str(BASE_DIR))
 
-# --- Importações Seguras com Mensagens de Erro Distintas ---
 try:
-    from utils import PROJECT_ID, get_bq_client
-except ImportError as e:
-    logger.critical(f"❌ Erro ao importar 'utils.py': {e}. Verifique se o arquivo está em {BASE_DIR}")
+    import utils
+    import transformations as tr
+    
+except ImportError:
+    logger.critical(f"Módulo 'utils.py' não encontrado em: {BASE_DIR}")
     sys.exit(1)
 
-try:
-    import transformations as tr
-except ImportError as e:
-    logger.critical(f"❌ Erro ao importar 'transformations.py': {e}. Verifique se moveu o arquivo para {BASE_DIR}")
-    sys.exit(1)
+warnings.filterwarnings("ignore")
 
 # ==============================================================================
 # 2. CONSTANTES
