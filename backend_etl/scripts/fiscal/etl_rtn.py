@@ -131,7 +131,7 @@ def transform_wide_to_long(df: pd.DataFrame, table_name: str) -> pd.DataFrame:
     # 6. Tratamento de Valores
     df_long['valor'] = pd.to_numeric(df_long['valor'], errors='coerce')
     
-    return df_long[['rubrica', 'data_referencia', 'valor', 'data_carga', 'fonte', 'frequencia']]
+    return df_long[['rubrica', 'data_referencia', 'valor', 'data_carga', 'fonte']]
 
 def fetch_rtn_data() -> io.BytesIO:
     """Baixa o arquivo Excel do Tesouro Nacional."""

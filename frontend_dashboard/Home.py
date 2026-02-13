@@ -6,6 +6,13 @@ import os
 import time
 from datetime import datetime, timedelta
 
+# --- CONFIGURAÇÃO DA PÁGINA  ---
+st.set_page_config(
+    page_title="Home | IFI", 
+    page_icon="📊",
+    layout="wide"
+)
+
 # --- Configuração de Caminhos e Módulos ---
 # Garante que o Python encontre o query_engine e interface_utils [cite: 76]
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -16,13 +23,6 @@ from query_engine import (
     carregar_dados_fiscais, 
     carregar_dados_sociais, 
     get_status_atualizacao
-)
-
-# --- CONFIGURAÇÃO DA PÁGINA  ---
-st.set_page_config(
-    page_title="Home | IFI", # Nome que aparece na aba do navegador
-    page_icon="📊",
-    layout="wide"
 )
 
 # Aplica a identidade visual institucional 
