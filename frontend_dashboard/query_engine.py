@@ -3,140 +3,94 @@ import os
 import pandas as pd
 import streamlit as st
 from pathlib import Path
-import streamlit as st
-from datetime import datetime
 
 # ==============================================================================
-# 1. CONFIGURAÇÃO DE CAMINHOS (CORRIGIDA)
+# 1. CONFIGURAÇÃO DE AMBIENTE E CAMINHOS
 # ==============================================================================
+# Identificação dinâmica de diretórios para garantir que o Deploy funcione
+ROOT_DIR = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = ROOT_DIR / 'backend_etl' / 'scripts'
 
-# Identifica o caminho onde este arquivo (query_engine.py) está
-CURRENT_FILE = Path(__file__).resolve()
-# Sobe um nível para chegar em 'frontend_dashboard'
-FRONTEND_DIR = CURRENT_FILE.parent
-# Sobe mais um nível para chegar na raiz 'monitor_economia_ifi'
-PROJECT_ROOT = FRONTEND_DIR.parent
-
-# --- A CORREÇÃO ESTÁ AQUI ---
-# Aponta exatamente para onde o utils.py está: backend_etl/scripts
-SCRIPTS_DIR = PROJECT_ROOT / 'backend_etl' / 'scripts'
-
-# Verificação de segurança: O arquivo existe mesmo?
-utils_file_path = SCRIPTS_DIR / "utils.py"
-if not utils_file_path.exists():
-    st.error(f"❌ ERRO GRAVE DE CAMINHO:")
-    st.error(f"O arquivo 'utils.py' não foi encontrado no caminho esperado.")
-    st.write(f"Esperado: `{utils_file_path}`")
-    st.stop()
-
-# Adiciona a pasta 'scripts' no topo da lista de busca do Python
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-# ==============================================================================
-# 2. IMPORTAÇÃO DO UTILS
-# ==============================================================================
 try:
-    # Agora o Python sabe olhar dentro de 'backend_etl/scripts'
+    # Centraliza a conexão através do utils.py
     from utils import get_bq_client, PROJECT_ID
-except ImportError as e:
-    st.error("❌ Falha ao importar 'utils.py'.")
-    st.code(f"Tentando importar de: {SCRIPTS_DIR}\nErro: {e}")
+except ImportError:
+    st.error(f"❌ Erro Crítico: 'utils.py' não localizado em {SCRIPTS_DIR}")
     st.stop()
 
 # ==============================================================================
-# 3. FUNÇÕES DE CARGA DE DADOS (COM CACHE)
+# 2. MOTOR DE EXECUÇÃO (Função Genérica)
 # ==============================================================================
-
-# --- DADOS SOCIAIS ---
-@st.cache_data(ttl=3600)  # Cache dura 1 hora
-def carregar_dados_sociais():
+def executar_query(sql: str) -> pd.DataFrame:
+    """
+    Executa uma consulta no BigQuery e retorna um DataFrame.
+    """
     try:
         client = get_bq_client()
-        query = f"""
-            SELECT *
-            FROM `{PROJECT_ID}.dados_sociais.base_consolidada_pbf_cadun`
-            ORDER BY data DESC
-        """
-        df = client.query(query).to_dataframe()
-        if 'data' in df.columns:
-            df['data'] = pd.to_datetime(df['data'])
-        return df
+        query_job = client.query(sql)
+        return query_job.to_dataframe()
     except Exception as e:
-        st.error(f"Erro ao carregar dados sociais: {e}")
+        st.error(f"⚠️ Erro na consulta ao BigQuery: {e}")
         return pd.DataFrame()
 
-# --- DADOS MACROECONÔMICOS ---
+# ==============================================================================
+# 3. CARREGAMENTO DE DADOS (Com Cache de 1 Hora)
+# ==============================================================================
+
+@st.cache_data(ttl=3600)
+def carregar_dados_sociais():
+    """Busca dados consolidados do PBF/CadÚnico."""
+    sql = f"SELECT * FROM `{PROJECT_ID}.dados_sociais.base_consolidada_pbf_cadun` ORDER BY data DESC"
+    df = executar_query(sql)
+    if not df.empty and 'data' in df.columns:
+        df['data'] = pd.to_datetime(df['data'])
+    return df
+
 @st.cache_data(ttl=3600)
 def carregar_dados_macro():
-    try:
-        client = get_bq_client()
-        query = f"""
-            SELECT *
-            FROM `{PROJECT_ID}.dados_macroeconomicos.banco_central_sgs`
-            ORDER BY data DESC
-        """
-        df = client.query(query).to_dataframe()
-        if 'data' in df.columns:
-            df['data'] = pd.to_datetime(df['data'])
-        return df
-    except Exception as e:
-        st.error(f"Erro ao carregar dados macro: {e}")
-        return pd.DataFrame()
+    """Busca indicadores do Banco Central (SGS)."""
+    sql = f"SELECT * FROM `{PROJECT_ID}.dados_macroeconomicos.banco_central_sgs` ORDER BY data DESC"
+    df = executar_query(sql)
+    if not df.empty and 'data' in df.columns:
+        df['data'] = pd.to_datetime(df['data'])
+    return df
 
-# --- DADOS FISCAIS (RTN) ---
 @st.cache_data(ttl=3600)
 def carregar_dados_fiscais(tipo="reais"):
-    try:
-        client = get_bq_client()
-        tabela = "rtn_valores_reais_ipca" if tipo == "reais" else "rtn_percentual_pib"
-        query = f"""
-            SELECT *
-            FROM `{PROJECT_ID}.dados_fiscais.{tabela}`
-            ORDER BY data_referencia DESC
-        """
-        df = client.query(query).to_dataframe()
-        if 'data_referencia' in df.columns:
-            df = df.rename(columns={'data_referencia': 'data'})
-            df['data'] = pd.to_datetime(df['data'])
-        return df
-    except Exception as e:
-        st.error(f"Erro ao carregar dados fiscais ({tipo}): {e}")
-        return pd.DataFrame()
+    """Busca séries do Tesouro Nacional (RTN)."""
+    tabela = "rtn_valores_reais_ipca" if tipo == "reais" else "rtn_percentual_pib"
+    sql = f"SELECT * FROM `{PROJECT_ID}.dados_fiscais.{tabela}` ORDER BY data_referencia DESC"
+    
+    df = executar_query(sql)
+    if not df.empty and 'data_referencia' in df.columns:
+        df = df.rename(columns={'data_referencia': 'data'})
+        df['data'] = pd.to_datetime(df['data'])
+    return df
 
 # ==============================================================================
-# 4. UTILITÁRIOS
+# 4. MONITORAMENTO E STATUS (Sinal de Vida)
 # ==============================================================================
-def converter_para_csv(df):
-    return df.to_csv(index=False).encode('utf-8')
-
 
 def get_status_atualizacao():
     """
-    Busca as datas de carga mais recentes usando os nomes exatos do BigQuery.
+    Monitora a saúde do pipeline consultando os metadados das tabelas.
     """
-    client = get_bq_client()
-    
-    # Query ajustada conforme a imagem do seu banco de dados
-    sql = """
+    # Usamos o ID do projeto para evitar erros de localização 404
+    sql = f"""
     SELECT 'Macro' as dominio, MAX(data_carga) as ultima_carga, MAX(data) as referencia 
-    FROM `dados_macroeconomicos.banco_central_sgs`
-    
+    FROM `{PROJECT_ID}.dados_macroeconomicos.banco_central_sgs`
     UNION ALL
-    
-    -- Usamos a tabela de valores reais como referência para o domínio Fiscal
     SELECT 'Fiscal' as dominio, MAX(data_carga) as ultima_carga, MAX(data_referencia) as referencia 
-    FROM `dados_fiscais.rtn_valores_reais_ipca`
-    
+    FROM `{PROJECT_ID}.dados_fiscais.rtn_valores_reais_ipca`
     UNION ALL
-    
-    -- Nome ajustado conforme aparece na sua aba do BigQuery
     SELECT 'Social' as dominio, MAX(data_carga) as ultima_carga, MAX(data) as referencia 
-    FROM `dados_sociais.base_consolidada_pbf_cadun`
+    FROM `{PROJECT_ID}.dados_sociais.base_consolidada_pbf_cadun`
     """
-    
-    try:
-        return client.query(sql).to_dataframe()
-    except Exception as e:
-        print(f"⚠️ Erro ao acessar tabelas: {e}")
-        return pd.DataFrame()
+    return executar_query(sql)
+
+def converter_para_csv(df):
+    """Auxiliar para exportação de dados no dashboard."""
+    return df.to_csv(index=False).encode('utf-8')

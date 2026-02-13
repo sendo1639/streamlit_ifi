@@ -5,17 +5,18 @@ import pandas as pd
 import sys
 import os
 import io
+from datetime import datetime
+from datetime import timedelta
+from query_engine import get_status_atualizacao
 
-
-# 1. Importe a sua função de estilo
+# 1. estilo
 from interface_utils import configurar_interface_ifi
 
 # 2. Chame a função logo após o set_page_config
 st.set_page_config(page_title="Seu Título", layout="wide")
 configurar_interface_ifi()
 
-
-# --- Importação Robusta ---
+# --- Importação ---
 try:
     from query_engine import carregar_dados_fiscais, converter_para_csv
 except ImportError:
@@ -96,7 +97,7 @@ def criar_grafico_simples(df, titulo, cor_linha='#1f77b4'):
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Fiscal | IFI", page_icon="🏛️", layout="wide")
 
-st.title("🏛️ Monitor Fiscal (RTN)")
+st.title("Fiscal (RTN)")
 st.markdown("Acompanhe as finanças públicas federais.")
 
 # --- CARREGAMENTO ---
@@ -201,7 +202,7 @@ st.divider()
 # --- CENÁRIO A: PAINEL DE AGREGADOS ---
 if escopo_analise == "Contas Principais (Em Painel)":
     
-    st.subheader(f"📊 Painel das Principais Contas - {modo_visualizacao}")
+    st.subheader(f"Painel das Principais Contas - {modo_visualizacao}")
     
     top5_reais = encontrar_rubricas_top5(lista_reais)
     top5_pib = encontrar_rubricas_top5(lista_pib)
@@ -303,3 +304,32 @@ with col3:
     )
 
 st.dataframe(df_exportacao, use_container_width=True, hide_index=True)
+
+df_status = get_status_atualizacao()
+
+if not df_status.empty:
+    # Captura a data da última carga no BigQuery [cite: 51]
+    data_carga = df_status['ultima_carga'].max()
+    data_ajustada = data_carga + timedelta(hours=-3)
+    data_formatada = data_ajustada.strftime('%d/%m/%Y às %H:%M:%S')
+    
+    # CSS para fixar o texto no final da sidebar [cite: 37, 38]
+    st.sidebar.markdown(
+        f"""
+        <style>
+            .sidebar-footer {{
+                position: fixed;
+                bottom: 15px;
+                left: 15px;
+                font-size: 12px;
+                color: #6c757d; 
+                font-family: 'sans-serif';
+            }}
+        </style>
+        <div class="sidebar-footer">
+            Última coleta de dados: <br>
+            <b>{data_formatada}</b>
+        </div>
+        """, 
+        unsafe_allow_html=True
+)
