@@ -4,7 +4,7 @@ save_data_on_exit = True
 save_history = True
 save_non_project_files = False
 project_type = 'empty-project-type'
-recent_files = ['frontend_dashboard\\query_engine.py', 'frontend_dashboard\\pages\\03_Social.py', 'frontend_dashboard\\pages\\01_Macroeconomia.py', 'frontend_dashboard\\pages\\02_Fiscal.py', 'frontend_dashboard\\app.py', 'backend_etl\\scripts\\social\\etl_historico_pab_ae.py']
+recent_files = []
 
 [main]
 version = 0.2.0
