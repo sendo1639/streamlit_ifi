@@ -70,6 +70,22 @@ def carregar_dados_fiscais(tipo="reais"):
         df['data'] = pd.to_datetime(df['data'])
     return df
 
+@st.cache_data(ttl=3600)
+def carregar_dados_ettj():
+    """
+    Busca a série histórica da curva de juros ETTJ (ANBIMA).
+    Colunas: data | vertice_du | nome_variavel | valor
+    """
+    sql = f"""
+        SELECT data, vertice_du, nome_variavel, valor
+        FROM `{PROJECT_ID}.dados_macroeconomicos.anbima_ettj`
+        ORDER BY data DESC, vertice_du ASC
+    """
+    df = executar_query(sql)
+    if not df.empty and 'data' in df.columns:
+        df['data'] = pd.to_datetime(df['data'])
+    return df
+
 # ==============================================================================
 # 4. MONITORAMENTO E STATUS (Sinal de Vida)
 # ==============================================================================
@@ -88,6 +104,9 @@ def get_status_atualizacao():
     UNION ALL
     SELECT 'Social' as dominio, MAX(data_carga) as ultima_carga, MAX(data) as referencia 
     FROM `{PROJECT_ID}.dados_sociais.base_consolidada_pbf_cadun`
+    UNION ALL
+    SELECT 'ETTJ' as dominio, MAX(data_carga) as ultima_carga, MAX(data) as referencia
+    FROM `{PROJECT_ID}.dados_macroeconomicos.anbima_ettj`
     """
     return executar_query(sql)
 

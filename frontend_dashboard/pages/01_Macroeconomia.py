@@ -156,7 +156,7 @@ with tab_cambio:
 # --- ABA 5: CURVA DE JUROS (ETTJ) ---
 with tab_ettj:
     st.markdown("### Estrutura a Termo das Taxas de Juros — ANBIMA")
-    st.caption("Curva de juros estimada pela ANBIMA. Fonte: coleta diária incremental.")
+    st.caption("Curva de juros estimada pela ANBIMA.")
  
     # --- Carregamento ---
     with st.spinner("Carregando dados da curva de juros..."):
