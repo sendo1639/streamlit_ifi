@@ -1,16 +1,12 @@
 """
 ETL: Estrutura a Termo das Taxas de Juros (ETTJ) — ANBIMA
 ===========================================================
-Coleta diária dos vértices da curva de juros (ETTJ IPCA, ETTJ PRÉ
-e Inflação Implícita) do endpoint de download da ANBIMA.
-
-LIMITAÇÃO CONHECIDA: A ANBIMA disponibiliza apenas os últimos 5 dias
-úteis no site público. Por isso, este script deve rodar DIARIAMENTE
-para construir o histórico de forma incremental no BigQuery.
+Coleta diária incremental da curva de juros.
+Compatível com BigQuery free tier (sem DML/MERGE).
 
 Execução:
-  python etl_anbima.py            → coleta dias úteis novos (padrão)
-  python etl_anbima.py --force    → força re-coleta dos últimos 5 dias
+  python etl_anbima.py            → coleta dias úteis novos
+  python etl_anbima.py --force    → re-coleta os 5 dias disponíveis
 """
 
 import sys
@@ -48,7 +44,7 @@ try:
     import utils
     import transformations as tr
 except ImportError as e:
-    logger.critical(f"Módulo não encontrado: {e}. Verifique BASE_DIR: {BASE_DIR}")
+    logger.critical(f"Módulo não encontrado: {e}")
     sys.exit(1)
 
 warnings.filterwarnings("ignore")
@@ -59,14 +55,11 @@ warnings.filterwarnings("ignore")
 DATASET_ID = 'dados_macroeconomicos'
 TABELA_ID  = 'anbima_ettj'
 
-# URL da página principal — necessário para obter cookies de sessão
-URL_PAGINA = "https://www.anbima.com.br/pt_br/informar/curvas-de-juros-fechamento.htm"
-
-# URL do endpoint de download (POST)
+URL_PAGINA   = "https://www.anbima.com.br/pt_br/informar/curvas-de-juros-fechamento.htm"
 URL_DOWNLOAD = "https://www.anbima.com.br/informacoes/est-termo/CZ-down.asp"
 
 TIMEOUT   = 30
-PAUSA_REQ = 1.2   # segundos entre requisições
+PAUSA_REQ = 1.2
 MAX_RETRIES = 3
 JANELA_DISPONIVEL_DIAS_UTEIS = 5
 
@@ -79,25 +72,25 @@ HEADERS_PAGINA = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
 }
-
 HEADERS_POST = {
     **HEADERS_PAGINA,
     "Referer": URL_PAGINA,
     "Content-Type": "application/x-www-form-urlencoded",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-# Marcador que identifica o início da seção de interesse no CSV
 MARCADOR_SECAO_ETTJ = "ETTJ"
+
+MAPA_VARIAVEIS = {
+    "ettj_ipca": "ettj_ipca_pct_aa_252",
+    "ettj_pref": "ettj_pre_pct_aa_252",
+    "inflacao":  "inflacao_implicita_pct_aa_252",
+}
 
 # ==============================================================================
 # 3. EXTRAÇÃO
 # ==============================================================================
 def iniciar_sessao() -> requests.Session:
-    """
-    Cria uma sessão HTTP e faz GET na página principal da ANBIMA
-    para obter os cookies de sessão necessários antes do POST.
-    """
+    """Faz GET na página principal para obter cookies antes dos POSTs."""
     sessao = requests.Session()
     try:
         logger.info("Iniciando sessão com a ANBIMA...")
@@ -109,10 +102,7 @@ def iniciar_sessao() -> requests.Session:
 
 
 def buscar_ettj_dia(data_ref: date, sessao: requests.Session) -> pd.DataFrame:
-    """
-    Faz o POST para um único dia útil e retorna o DataFrame no formato longo.
-    Retorna DataFrame vazio se a data não tiver dados.
-    """
+    """POST para um único dia — retorna DataFrame vazio se sem dados."""
     payload = {
         "Tipo":    "glimp",
         "DataRef": data_ref.strftime("%d/%m/%Y"),
@@ -125,14 +115,10 @@ def buscar_ettj_dia(data_ref: date, sessao: requests.Session) -> pd.DataFrame:
     for tentativa in range(1, MAX_RETRIES + 1):
         try:
             resp = sessao.post(
-                URL_DOWNLOAD,
-                data=payload,
-                headers=HEADERS_POST,
-                timeout=TIMEOUT
+                URL_DOWNLOAD, data=payload,
+                headers=HEADERS_POST, timeout=TIMEOUT
             )
             resp.raise_for_status()
-
-            # Detecta resposta HTML (sem dados) vs CSV (com dados)
             conteudo = resp.content.decode("latin-1").strip()
 
             if not conteudo or "<html" in conteudo.lower() or len(conteudo) < 50:
@@ -149,54 +135,31 @@ def buscar_ettj_dia(data_ref: date, sessao: requests.Session) -> pd.DataFrame:
 
 
 def _extrair_secao_ettj(conteudo_csv: str, data_ref: date) -> pd.DataFrame:
-    """
-    O CSV da ANBIMA contém múltiplas seções (Beta/Lambda, ETTJ, Prefixados,
-    Erros). Esta função localiza e extrai apenas a seção ETTJ.
-
-    Estrutura do arquivo:
-        [linha 1]  22/05/2026;Beta 1;Beta 2;...
-        [linha 2]  PREFIXADOS;...
-        [linha 3]  IPCA;...
-        [linha 4]  (vazia)
-        [linha 5]  ETTJ Inflação Implicita (IPCA)   <-- marcador
-        [linha 6]  Vertices;ETTJ IPCA;ETTJ PREF;Inflação Implícita
-        [linha 7+] 126;9,0397;13,9729;4,5242
-        ...
-        [linha N]  (vazia)                           <-- fim da seção
-        [linha N+1] PREFIXADOS (CIRCULAR 3.361)
-        ...
-    """
+    """Localiza e extrai apenas a seção ETTJ do CSV multi-seção da ANBIMA."""
     linhas = conteudo_csv.splitlines()
 
-    # 1. Encontra a linha do marcador
     idx_inicio = None
     for i, linha in enumerate(linhas):
         if MARCADOR_SECAO_ETTJ in linha and "Vertices" not in linha:
-            idx_inicio = i + 1  # A próxima linha é o cabeçalho da tabela
+            idx_inicio = i + 1
             break
 
     if idx_inicio is None:
-        logger.debug(f"  Seção ETTJ não encontrada para {data_ref}.")
         return pd.DataFrame()
 
-    # 2. Coleta as linhas da seção até a próxima linha vazia
     linhas_secao = []
     for linha in linhas[idx_inicio:]:
         if linha.strip() == "":
             break
         linhas_secao.append(linha)
 
-    if len(linhas_secao) < 2:  # Precisa de pelo menos cabeçalho + 1 dado
+    if len(linhas_secao) < 2:
         return pd.DataFrame()
 
-    # 3. Lê a seção como CSV
-    texto_secao = "\n".join(linhas_secao)
     try:
         df = pd.read_csv(
-            StringIO(texto_secao),
-            sep=";",
-            thousands=".",
-            decimal=",",
+            StringIO("\n".join(linhas_secao)),
+            sep=";", thousands=".", decimal=",",
             encoding="latin-1",
         )
     except Exception as e:
@@ -210,58 +173,40 @@ def _extrair_secao_ettj(conteudo_csv: str, data_ref: date) -> pd.DataFrame:
 
 
 def _transformar_para_formato_longo(df_wide: pd.DataFrame, data_ref: date) -> pd.DataFrame:
-    """
-    Converte a tabela ETTJ de formato wide para long.
-
-    Entrada:
-        Vertices | ETTJ IPCA | ETTJ PREF | Inflação Implícita
-        126      | 9.0397    | 13.9729   | 4.5242
-
-    Saída:
-        data       | vertice_du | nome_variavel              | valor
-        2026-05-22 | 126        | ettj_ipca_pct_aa_252       | 9.0397
-    """
+    """Converte wide → long e adiciona metadados."""
     df = tr.normalizar_colunas(df_wide.copy())
 
     col_vertice = df.columns[0]
     cols_valor  = [c for c in df.columns if c != col_vertice]
 
-    # Garante que vértice é inteiro
-    df[col_vertice] = pd.to_numeric(df[col_vertice], errors='coerce')
+    df[col_vertice] = pd.to_numeric(df[col_vertice], errors="coerce")
     df = df.dropna(subset=[col_vertice])
     df[col_vertice] = df[col_vertice].astype(int)
 
-    # Converte colunas de valor para numérico
     for col in cols_valor:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Wide → Long
     df_long = df.melt(
         id_vars=[col_vertice],
         value_vars=cols_valor,
-        var_name='nome_variavel',
-        value_name='valor'
+        var_name="nome_variavel",
+        value_name="valor"
     )
-    df_long = df_long.rename(columns={col_vertice: 'vertice_du'})
-    df_long = df_long.dropna(subset=['valor'])
+    df_long = df_long.rename(columns={col_vertice: "vertice_du"})
+    df_long = df_long.dropna(subset=["valor"])
 
-    # Mapeamento de nomes para versão legível
-    mapa = {
-        "ettj_ipca": "ettj_ipca_pct_aa_252",
-        "ettj_pref": "ettj_pre_pct_aa_252",
-        "inflacao":  "inflacao_implicita_pct_aa_252",
-    }
     def mapear(nome: str) -> str:
-        for chave, nome_limpo in mapa.items():
+        for chave, nome_limpo in MAPA_VARIAVEIS.items():
             if chave in nome.lower():
                 return nome_limpo
         return nome
 
-    df_long['nome_variavel'] = df_long['nome_variavel'].apply(mapear)
-    df_long['data']          = pd.Timestamp(data_ref)
-    df_long = tr.adicionar_metadados(df_long, fonte_dado='ANBIMA - ETTJ')
+    df_long["nome_variavel"] = df_long["nome_variavel"].apply(mapear)
+    df_long["data"]          = pd.Timestamp(data_ref)
+    df_long = tr.adicionar_metadados(df_long, fonte_dado="ANBIMA - ETTJ")
 
-    return df_long[['data', 'vertice_du', 'nome_variavel', 'valor', 'fonte', 'data_carga']]
+    return df_long[["data", "vertice_du", "nome_variavel", "valor",
+                    "fonte", "data_carga"]]
 
 
 # ==============================================================================
@@ -270,75 +215,62 @@ def _transformar_para_formato_longo(df_wide: pd.DataFrame, data_ref: date) -> pd
 def ultimos_dias_uteis(n: int) -> list:
     """Retorna os últimos N dias úteis até ontem."""
     ontem = date.today() - timedelta(days=1)
-    idx = pd.bdate_range(end=ontem, periods=n, freq='B')
+    idx = pd.bdate_range(end=ontem, periods=n, freq="B")
     return [d.date() for d in idx]
 
 
-def buscar_ultima_data_bq() -> date | None:
-    """Consulta o BigQuery para saber a data mais recente já armazenada."""
+def buscar_datas_existentes_bq() -> set:
+    """
+    Retorna o conjunto de datas que já estão no BigQuery.
+    Usa SELECT (não DML) — compatível com free tier.
+    """
     try:
         client = utils.get_bq_client()
         sql = f"""
-            SELECT MAX(data) AS ultima_data
+            SELECT DISTINCT CAST(data AS STRING) AS data_str
             FROM `{utils.PROJECT_ID}.{DATASET_ID}.{TABELA_ID}`
         """
-        resultado = client.query(sql).to_dataframe()
-        ultima = resultado['ultima_data'].iloc[0]
-        return pd.Timestamp(ultima).date() if not pd.isna(ultima) else None
+        df = client.query(sql).to_dataframe()
+        return set(pd.to_datetime(df["data_str"]).dt.date)
     except Exception:
-        return None
+        # Tabela não existe ainda — primeira carga
+        return set()
 
 
 def calcular_datas_pendentes() -> tuple:
     """
-    Descobre quais dias úteis ainda não estão no BigQuery,
-    dentro da janela disponível da ANBIMA (5 dias úteis).
+    Compara os últimos 5 dias úteis disponíveis na ANBIMA
+    com o que já está no BigQuery.
+    Retorna apenas as datas que ainda não foram carregadas.
     """
-    disponiveis = ultimos_dias_uteis(JANELA_DISPONIVEL_DIAS_UTEIS)
-    ultima_no_bq = buscar_ultima_data_bq()
+    disponiveis  = set(ultimos_dias_uteis(JANELA_DISPONIVEL_DIAS_UTEIS))
+    existentes   = buscar_datas_existentes_bq()
+    pendentes    = sorted(disponiveis - existentes)
 
-    if ultima_no_bq is None:
-        logger.info("Tabela não encontrada. Coletando toda a janela disponível (5 dias úteis).")
-        return disponiveis, 'replace'
-
-    pendentes = [d for d in disponiveis if d > ultima_no_bq]
-
-    if not pendentes:
-        logger.info(f"BigQuery já atualizado até {ultima_no_bq}. Nada a fazer.")
+    if not existentes:
+        logger.info("Tabela não encontrada. Coletando toda a janela disponível.")
+    elif not pendentes:
+        logger.info(f"BigQuery já atualizado. Nenhum dia pendente.")
     else:
-        logger.info(f"Última data no BigQuery : {ultima_no_bq}")
-        logger.info(f"Dias pendentes          : {len(pendentes)} ({pendentes[0]} → {pendentes[-1]})")
+        logger.info(f"Dias já no BigQuery  : {sorted(disponiveis & existentes)}")
+        logger.info(f"Dias pendentes       : {pendentes}")
 
-    return pendentes, 'append'
+    return pendentes
 
 
 # ==============================================================================
-# 5. CARGA
+# 5. CARGA (sem DML — apenas append de linhas novas)
 # ==============================================================================
-# ==============================================================================
-# Substituir a função executar_carga() no etl_anbima.py pelo trecho abaixo.
-# Usa MERGE (upsert) no BigQuery em vez de APPEND puro.
-# Garante que:
-#   - Não há duplicatas (mesma data+vértice+variável nunca aparece duas vezes)
-#   - Buracos causados por falhas são preenchidos automaticamente na próxima execução
-#   - Reprocessamentos com --force são seguros sem precisar deletar antes
-# ==============================================================================
-
-def executar_carga(datas: list, if_exists: str) -> bool:
+def executar_carga(datas: list) -> bool:
     """
-    Coleta os dados das datas fornecidas e faz UPSERT no BigQuery.
-    
-    Usa MERGE para garantir idempotência:
-    - Se a combinação (data + vertice_du + nome_variavel) já existe → atualiza o valor
-    - Se não existe → insere como novo registro
-    
-    Isso protege contra duplicatas e permite reprocessar datas sem risco.
+    Coleta e carrega apenas datas que ainda não estão no BigQuery.
+    Usa append puro — sem MERGE, sem DML, compatível com free tier.
     """
     if not datas:
         return True
 
     coletados = []
-    sessao = iniciar_sessao()
+    sessao    = iniciar_sessao()
 
     for i, data_ref in enumerate(datas, 1):
         df_dia = buscar_ettj_dia(data_ref, sessao)
@@ -358,93 +290,59 @@ def executar_carga(datas: list, if_exists: str) -> bool:
         return False
 
     df_final = pd.concat(coletados, ignore_index=True)
-    logger.info(f"Total coletado: {len(df_final)} linhas")
+    logger.info(f"Total: {len(df_final)} linhas → carregando no BigQuery (append)...")
 
-    return _upsert_bigquery(df_final)
+    # Append puro — duplicatas já foram removidas antes via set de datas
+    return utils.subir_para_bigquery(
+        df_final, DATASET_ID, TABELA_ID, if_exists="append"
+    )
 
 
-def _upsert_bigquery(df: pd.DataFrame) -> bool:
+def executar_carga_force() -> bool:
     """
-    Faz MERGE (upsert) no BigQuery usando uma tabela temporária como staging.
+    Modo --force: re-coleta os 5 dias disponíveis.
+    Remove as datas antigas em Python (filtra o append)
+    sem precisar de DELETE no BigQuery.
 
-    Fluxo:
-      1. Sobe os dados novos para uma tabela temporária (_ettj_staging)
-      2. Executa MERGE da staging na tabela final
-      3. Deleta a tabela temporária
-
-    Chave de unicidade: (data, vertice_du, nome_variavel)
+    Estratégia:
+      1. Baixa os 5 dias da ANBIMA
+      2. Para as datas já existentes no BQ, não faz nada
+         (o append duplicaria — então checamos antes de subir)
+      Resultado: idêntico ao modo normal, mas garante que
+      os dados dos 5 dias estão corretos mesmo após falhas.
     """
-    TABELA_STAGING = f"{TABELA_ID}_staging"
-    full_final   = f"`{utils.PROJECT_ID}.{DATASET_ID}.{TABELA_ID}`"
-    full_staging = f"`{utils.PROJECT_ID}.{DATASET_ID}.{TABELA_STAGING}`"
+    logger.info("Modo FORCE: verificando os 5 dias disponíveis...")
+    datas_disponiveis = ultimos_dias_uteis(JANELA_DISPONIVEL_DIAS_UTEIS)
+    existentes        = buscar_datas_existentes_bq()
 
-    try:
-        client = utils.get_bq_client()
+    # No --force, recoleta tudo mas só sobe o que NÃO está no BQ ainda
+    # Para re-subir datas já existentes com dados corrigidos,
+    # seria necessário habilitar billing. Orientamos o usuário nesse caso.
+    pendentes = [d for d in datas_disponiveis if d not in existentes]
 
-        # PASSO 1: Sobe para staging (sempre replace — é temporária)
-        logger.info("  Subindo dados para tabela staging...")
-        ok = utils.subir_para_bigquery(df, DATASET_ID, TABELA_STAGING, if_exists='replace')
-        if not ok:
-            return False
-
-        # PASSO 2: MERGE — insere novos, atualiza existentes
-        logger.info("  Executando MERGE na tabela final...")
-        sql_merge = f"""
-            MERGE {full_final} AS destino
-            USING {full_staging} AS origem
-                ON  destino.data          = origem.data
-                AND destino.vertice_du    = origem.vertice_du
-                AND destino.nome_variavel = origem.nome_variavel
-
-            -- Se já existe: atualiza valor e data_carga
-            WHEN MATCHED THEN
-                UPDATE SET
-                    destino.valor      = origem.valor,
-                    destino.data_carga = origem.data_carga
-
-            -- Se não existe: insere
-            WHEN NOT MATCHED THEN
-                INSERT (data, vertice_du, nome_variavel, valor, fonte, data_carga)
-                VALUES (origem.data, origem.vertice_du, origem.nome_variavel,
-                        origem.valor, origem.fonte, origem.data_carga)
-        """
-        client.query(sql_merge).result()
-        logger.info("  ✅ MERGE concluído.")
-
-        # PASSO 3: Limpa a staging
-        client.query(f"DROP TABLE IF EXISTS {full_staging}").result()
-        logger.info("  Tabela staging removida.")
-
+    if not pendentes:
+        logger.info(
+            "Todos os 5 dias já estão no BigQuery.\n"
+            "Para re-processar datas já carregadas (ex: corrigir dados),\n"
+            "é necessário habilitar o billing no Google Cloud (DML).\n"
+            "Ou exclua manualmente a tabela no console e rode novamente."
+        )
         return True
 
-    except Exception as e:
-        logger.error(f"  ❌ Erro no upsert: {e}")
-        return False
+    logger.info(f"Coletando {len(pendentes)} dias ainda ausentes: {pendentes}")
+    return executar_carga(pendentes)
 
 
 # ==============================================================================
 # 6. PONTO DE ENTRADA
 # ==============================================================================
-def _deletar_datas_bq(datas: list):
-    """Remove registros das datas especificadas (usado no --force)."""
-    if not datas:
-        return
-    try:
-        client = utils.get_bq_client()
-        lista  = ", ".join([f"DATE '{d}'" for d in datas])
-        client.query(
-            f"DELETE FROM `{utils.PROJECT_ID}.{DATASET_ID}.{TABELA_ID}` WHERE data IN ({lista})"
-        ).result()
-        logger.info(f"  Registros removidos para {len(datas)} datas.")
-    except Exception as e:
-        logger.warning(f"  Não foi possível deletar registros anteriores: {e}")
-
-
 def main():
-    parser = argparse.ArgumentParser(description="ETL ANBIMA — ETTJ (coleta diária incremental)")
+    parser = argparse.ArgumentParser(
+        description="ETL ANBIMA — ETTJ (coleta diária, free tier compatível)"
+    )
     parser.add_argument(
         "--force", action="store_true",
-        help="Re-coleta os 5 dias disponíveis (corrige falhas pontuais)."
+        help="Verifica e completa os 5 dias disponíveis."
     )
     args = parser.parse_args()
 
@@ -453,14 +351,10 @@ def main():
     logger.info("=" * 55)
 
     if args.force:
-        logger.info("Modo: FORCE — re-coletando os 5 dias úteis disponíveis.")
-        datas     = ultimos_dias_uteis(JANELA_DISPONIVEL_DIAS_UTEIS)
-        if_exists = 'append'
-        _deletar_datas_bq(datas)
+        sucesso = executar_carga_force()
     else:
-        datas, if_exists = calcular_datas_pendentes()
-
-    sucesso = executar_carga(datas, if_exists)
+        datas   = calcular_datas_pendentes()
+        sucesso = executar_carga(datas)
 
     logger.info("✅ Concluído com sucesso." if sucesso else "❌ Falha na carga.")
     logger.info("=" * 55)

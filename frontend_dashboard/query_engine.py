@@ -86,6 +86,43 @@ def carregar_dados_ettj():
         df['data'] = pd.to_datetime(df['data'])
     return df
 
+@st.cache_data(ttl=3600)
+def carregar_dados_estatais():
+    """
+    Busca a base completa de estatais do BigQuery.
+    Retorna todos os planos de contas (Balanço, DRE, DVA, Fluxo de Caixa)
+    para todos os anos e empresas disponíveis.
+    """
+    sql = f"""
+        SELECT
+            exercicio,
+            codigo_siest,
+            sigla_empresa,
+            nome_empresa,
+            dependencia,
+            setor,
+            nome_tipo_plano_contas,
+            rubrica,
+            rubrica_nome,
+            valor
+        FROM `{PROJECT_ID}.dados_fiscais.sest_estatais`
+        ORDER BY exercicio, sigla_empresa, nome_tipo_plano_contas, rubrica
+    """
+    return executar_query(sql)
+
+
+@st.cache_data(ttl=3600)
+def carregar_dados_siga_brasil():
+        sql = f"""
+            SELECT exercicio, sigla_empresa, despesas_totais_mi, recursos_tesouro_mi,
+                   grau_dependencia_pct, comp_pessoal_correntes_pct, comp_investimentos_pct
+            FROM `{PROJECT_ID}.dados_fiscais.siga_brasil_dependentes`
+            ORDER BY exercicio, sigla_empresa
+        """
+        return executar_query(sql)
+
+
+
 # ==============================================================================
 # 4. MONITORAMENTO E STATUS (Sinal de Vida)
 # ==============================================================================
