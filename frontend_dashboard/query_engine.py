@@ -113,15 +113,66 @@ def carregar_dados_estatais():
 
 @st.cache_data(ttl=3600)
 def carregar_dados_siga_brasil():
-        sql = f"""
-            SELECT exercicio, sigla_empresa, despesas_totais_mi, recursos_tesouro_mi,
-                   grau_dependencia_pct, comp_pessoal_correntes_pct, comp_investimentos_pct
-            FROM `{PROJECT_ID}.dados_fiscais.siga_brasil_dependentes`
-            ORDER BY exercicio, sigla_empresa
-        """
-        return executar_query(sql)
+    """
+    Carrega dados do SIGA Brasil — Estatais Dependentes (Pellegrini v2).
+    Tabela: dados_fiscais.siga_brasil_dependentes
+ 
+    Colunas novas em relação à v1:
+      despesa_pessoal_mi           — GND Pessoal isolado (R$ Mi)
+      num_funcionarios             — quantitativo dez/ano (arquivo pessoal SEST)
+      desp_pessoal_por_func_mes_rs — Pellegrini: Pessoal / (Func × 13)
+    """
+    sql = f"""
+        SELECT
+            exercicio,
+            sigla_empresa,
+            despesas_totais_mi,
+            recursos_tesouro_mi,
+            grau_dependencia_pct,
+            comp_pessoal_correntes_pct,
+            comp_investimentos_pct,
+            despesa_pessoal_mi,
+            num_funcionarios,
+            desp_pessoal_por_func_mes_rs
+        FROM `{PROJECT_ID}.dados_fiscais.siga_brasil_dependentes`
+        ORDER BY exercicio, sigla_empresa
+    """
+    return executar_query(sql)
 
 
+@st.cache_data(ttl=3600)
+def carregar_dados_estatais_2025():
+    """
+    Carrega dados contábeis trimestrais das estatais (2025+).
+    Tabela: dados_fiscais.estatais_2025
+    Schema: exercicio, trimestre, periodicidade, universo_cod, universo_desc,
+            sigla_empresa, nome_empresa, dependencia, setor, area_atuacao,
+            nome_tipo_plano_contas, rubrica, rubrica_nome,
+            valor (acumulado no ano), valor_trimestre (isolado do trimestre)
+
+    IMPORTANTE: 'valor' é o acumulado no ano-calendário (1T, 1T+2T, ...),
+    como reportado pelo SIEST. 'valor_trimestre' é o valor isolado daquele
+    trimestre (calculado no ETL por diferença entre acumulados). Contas de
+    Balanço (estoque) têm valor == valor_trimestre, pois são saldos pontuais.
+    'valor_trimestre' pode ser NULL quando há um trimestre faltante na série
+    (não inferimos esse caso para evitar dado incorreto).
+    """
+    sql = f"""
+        SELECT
+            exercicio, trimestre, periodicidade,
+            universo_cod, universo_desc,
+            sigla_empresa, nome_empresa,
+            dependencia, setor, area_atuacao,
+            nome_tipo_plano_contas, rubrica, rubrica_nome,
+            valor, valor_trimestre
+        FROM `{PROJECT_ID}.dados_fiscais.estatais_2025`
+        ORDER BY exercicio, trimestre, sigla_empresa
+    """
+    df = executar_query(sql)
+    if df is not None and not df.empty:
+        # Rubrica como int para compatibilizar com filtros (vem como string do BQ)
+        df['rubrica'] = pd.to_numeric(df['rubrica'], errors='coerce').astype('Int64')
+    return df
 
 # ==============================================================================
 # 4. MONITORAMENTO E STATUS (Sinal de Vida)

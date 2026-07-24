@@ -1,6 +1,6 @@
 """
 P�gina: Monitor de Empresas Estatais (SEST/MGI)
-Fonte: Demonstrações financeiras históricas obtidas via LAI
+Fonte: Demonstrações financeiras históricas obtidas
 Período: 2008–2024 (dados anuais)
 
 Metodologia DVA/DRE: Pellegrini (2019) — Ipea
@@ -63,17 +63,7 @@ RUBRICAS = {
     "fc_aporte_capital_uniao":     400700,
     "fc_subvencao":                400800,
 }
-
-NOTA_ESCALA = (
-    "⚠️ **Nota metodológica:** os valores monetários podem estar "
-    "em escalas diferentes entre empresas (R$ unidade vs R$ mil). "
-    "Esclarecimento solicitado via LAI — aguardando resposta."
-)
-NOTA_FALTANTES = (
-    "ℹ️ ENBpar e Codeba não constam nos dados recebidos via LAI. "
-    "Pedido de complementação em andamento."
-)
-
+ 
 # ==============================================================================
 # HELPERS
 # ==============================================================================
@@ -119,7 +109,6 @@ def fmt1(v):
 # ==============================================================================
 st.title("🏛️ Monitor de Empresas Estatais Federais")
 st.markdown("Demonstrações financeiras consolidadas — SEST/MGI · 2008–2024 · Dados anuais")
-st.caption(NOTA_ESCALA)
 
 with st.spinner("Carregando dados das estatais..."):
     df_raw = carregar_dados_estatais()
@@ -176,8 +165,7 @@ st.sidebar.caption(
     f"**{periodo[0]}–{periodo[1]}**"
 )
 st.sidebar.info(
-    "**Fonte:** SEST/MGI via LAI\n\n"
-    "**Nota:** " + NOTA_FALTANTES
+    "**Fonte:** SEST/MGI\n\n"
 )
 
 # Subsets por plano
@@ -303,34 +291,6 @@ with tab_dre:
 
     if not df_siga.empty:
         st.markdown("#### Grau de Dependência do Governo Federal")
-        with st.expander("ℹ️ Metodologia e fontes utilizadas"):
-            st.markdown("""
-**Metodologia:** Pellegrini (2019) — *Empresas estatais federais: relações com o Tesouro e valor*, Ipea.
-
-**Despesas totais:** soma de Pago + RP Pago, considerando os seguintes Grupos de Natureza de Despesa (GND):
-- Pessoal e Encargos Sociais
-- Outras Despesas Correntes
-- Investimentos
-- Inversões Financeiras
-
-*(Excluídos: Juros e Encargos da Dívida, Amortização/Refinanciamento e Reserva de Contingência)*
-
-**Recursos do Tesouro:** fontes de recurso cujo código inicia com dígito **1** (exercício corrente)
-ou **3** (exercícios anteriores — Restos a Pagar), excluindo fontes de recursos próprios da empresa.
-Seguindo a nota metodológica do Pellegrini: "fonte de recurso 1 e grupo da fonte de recurso 3".
-
-**Grau de dependência:** Recursos do Tesouro ÷ Despesas Totais × 100
-
-**Composição das despesas:**
-- *Pessoal e Correntes (%)*: (GND Pessoal + GND Outras Correntes) ÷ Total
-- *Invest. e Inversões (%)*: (GND Investimentos + GND Inversões Financeiras) ÷ Total
-
-**Fonte dos dados:** SIGA Brasil (SAP BI / WebI) — exportação manual por UO das estatais dependentes.
-
-**Nota:** HCPA e CONCEIÇÃO não aparecem nesta tabela pois seus recursos do Tesouro 
-chegam via Ministério da Saúde (SUS), sem UO própria no SIGA Brasil.
-INFRA S.A. (EPL) pode aparecer com valor zero em anos sem execução orçamentária.
-            """)
 
         anos_siga = sorted(df_siga["exercicio"].dropna().unique(), reverse=True)
         col_s1, col_s2 = st.columns([3, 1])
@@ -341,6 +301,10 @@ INFRA S.A. (EPL) pode aparecer com valor zero em anos sem execução orçamentá
                    .sort_values("grau_dependencia_pct", ascending=False).copy())
 
         if not df_pell.empty:
+            # Média ponderada de despesa por funcionário (denominador = total func × 13)
+            tot_pess_r = (df_pell["despesa_pessoal_mi"].fillna(0) * 1e6).sum()
+            tot_func   = df_pell["num_funcionarios"].sum(skipna=True)
+
             # Total
             total_row = pd.DataFrame([{
                 "sigla_empresa":             "TOTAL",
@@ -357,15 +321,35 @@ INFRA S.A. (EPL) pode aparecer com valor zero em anos sem execução orçamentá
                     (df_pell["despesas_totais_mi"] *
                      df_pell["comp_investimentos_pct"] / 100).sum() /
                     df_pell["despesas_totais_mi"].sum() * 100, 1),
+                "desp_pessoal_por_func_mes_rs": round(
+                    tot_pess_r / (tot_func * 13), 2)
+                    if pd.notna(tot_func) and tot_func > 0 else None,
             }])
-            df_tab = pd.concat([df_pell[list(total_row.columns)], total_row],
-                               ignore_index=True)
-            df_tab.columns = ["Denominação","Despesas (R$ Mi)","Rec. Tesouro (R$ Mi)",
-                               "Grau Depend. (%)","Pessoal e Correntes (%)","Invest. e Inversões (%)"]
-            for c in ["Despesas (R$ Mi)","Rec. Tesouro (R$ Mi)"]:
+            colunas_tab = [
+                "sigla_empresa", "despesas_totais_mi", "recursos_tesouro_mi",
+                "grau_dependencia_pct", "comp_pessoal_correntes_pct",
+                "comp_investimentos_pct", "desp_pessoal_por_func_mes_rs",
+            ]
+            df_tab = pd.concat(
+                [df_pell[[c for c in colunas_tab if c in df_pell.columns]],
+                 total_row[[c for c in colunas_tab if c in total_row.columns]]],
+                ignore_index=True
+            )
+            df_tab.columns = [
+                "Denominação", "Despesas (R$ Mi)", "Rec. Tesouro (R$ Mi)",
+                "Grau Depend. (%)", "Pessoal e Correntes (%)",
+                "Invest. e Inversões (%)", "Desp. Pessoal/Func./Mês (R$)",
+            ]
+            for c in ["Despesas (R$ Mi)", "Rec. Tesouro (R$ Mi)"]:
                 df_tab[c] = df_tab[c].map(fmt1)
-            for c in ["Grau Depend. (%)","Pessoal e Correntes (%)","Invest. e Inversões (%)"]:
-                df_tab[c] = df_tab[c].map(lambda x: f"{x:.1f}")
+            for c in ["Grau Depend. (%)", "Pessoal e Correntes (%)",
+                      "Invest. e Inversões (%)"]:
+                df_tab[c] = df_tab[c].map(
+                    lambda x: f"{x:.1f}" if pd.notna(x) else "—")
+            df_tab["Desp. Pessoal/Func./Mês (R$)"] = df_tab[
+                "Desp. Pessoal/Func./Mês (R$)"].map(
+                lambda x: f"R$ {float(x):,.0f}" if pd.notna(x) and x != "—"
+                else "—")
 
             def highlight_total(row):
                 if row["Denominação"] == "TOTAL":
@@ -406,6 +390,82 @@ INFRA S.A. (EPL) pode aparecer com valor zero em anos sem execução orçamentá
             fig_ev.update_layout(height=420, yaxis=dict(range=[0,105],ticksuffix="%"),
                 hovermode="x unified", legend=dict(orientation="h",y=1.1))
             st.plotly_chart(fig_ev, use_container_width=True)
+        st.divider()
+
+        # --- Bloco C: Despesa de Pessoal por Funcionário por Mês ---
+        st.markdown("#### Despesa de Pessoal por Funcionário por Mês")
+        st.caption(
+            "GND Pessoal ÷ (Nº funcionários × 13). "
+            "Divisor 13 = 12 meses + 13º salário, para base mensal real. "
+            "Fonte: Quantitativo de Pessoal das Estatais (SEST/MGI, dez/ano)."
+        )
+
+        col_c1, col_c2 = st.columns(2)
+
+        with col_c1:
+            df_func_ano = (
+                df_siga[df_siga["exercicio"] == ano_pell]
+                .dropna(subset=["desp_pessoal_por_func_mes_rs"])
+                .sort_values("desp_pessoal_por_func_mes_rs", ascending=True)
+            )
+            if not df_func_ano.empty:
+                fig_func = px.bar(
+                    df_func_ano,
+                    x="desp_pessoal_por_func_mes_rs", y="sigla_empresa",
+                    orientation="h",
+                    title=f"Ranking — {ano_pell} (R$ / func. / mês)",
+                    labels={"desp_pessoal_por_func_mes_rs": "R$",
+                            "sigla_empresa": ""},
+                    color="desp_pessoal_por_func_mes_rs",
+                    color_continuous_scale=["#AED6F1", "#1A5276"],
+                    template="plotly_white"
+                )
+                fig_func.update_traces(
+                    hovertemplate="%{y}: R$ %{x:,.0f}<extra></extra>")
+                fig_func.update_layout(
+                    height=max(380, len(df_func_ano) * 30),
+                    coloraxis_showscale=False,
+                    xaxis_tickprefix="R$ ", xaxis_tickformat=",."
+                )
+                st.plotly_chart(fig_func, use_container_width=True)
+            else:
+                st.info("Dados de funcionários não disponíveis para este ano.")
+
+        with col_c2:
+            emps_com_func = [
+                e for e in sorted(df_siga["sigla_empresa"].unique())
+                if df_siga[df_siga["sigla_empresa"] == e]
+                   ["desp_pessoal_por_func_mes_rs"].notna().any()
+            ]
+            if emps_com_func:
+                emp_func = st.selectbox(
+                    "Empresa — evolução histórica:",
+                    emps_com_func, key="func_empresa"
+                )
+                df_func_emp = (
+                    df_siga[df_siga["sigla_empresa"] == emp_func]
+                    .dropna(subset=["desp_pessoal_por_func_mes_rs"])
+                    .sort_values("exercicio")
+                )
+                fig_func_ev = px.line(
+                    df_func_emp,
+                    x="exercicio", y="desp_pessoal_por_func_mes_rs",
+                    markers=True,
+                    title=f"{emp_func} — Desp. Pessoal / Func. / Mês (R$)",
+                    labels={"desp_pessoal_por_func_mes_rs": "R$",
+                            "exercicio": "Ano"},
+                    template="plotly_white"
+                )
+                fig_func_ev.update_traces(
+                    line_color=CORES["azul_ifi"],
+                    hovertemplate="%{x}: R$ %{y:,.0f}<extra></extra>"
+                )
+                fig_func_ev.update_layout(
+                    height=380,
+                    yaxis_tickprefix="R$ ", yaxis_tickformat=",."
+                )
+                st.plotly_chart(fig_func_ev, use_container_width=True)
+
     else:
         st.info("⏳ Execute `etl_siga_brasil.py` para popular o Grau de Dependência.")
 
@@ -538,9 +598,7 @@ with tab_bal:
             empresas_str = ", ".join(ambos_neg["sigla_empresa"].tolist())
             st.warning(
                 f"⚠️ **ROE não interpretável:** {empresas_str} apresentam "
-                "resultado líquido E patrimônio líquido negativos em {ano_roe}. "
-                "O ROE resultante é positivo matematicamente mas não reflete "
-                "desempenho favorável. Consulte métricas alternativas abaixo."
+                "resultado líquido E patrimônio líquido negativos em {ano_roe}."
             )
 
         # Gráfico ROE — empresas com ambos negativos em cor distinta
@@ -612,77 +670,60 @@ with tab_bal:
                         legend=dict(orientation="h",y=1.1))
                     st.plotly_chart(fig_alav, use_container_width=True)
 
-            with col_m2:
-                st.caption("**Fluxo de Caixa Operacional**")
-                # Usa Subvenção + resultado como proxy do FCO quando FCO não disponível
-                df_subv = pegar_por_rubrica(
-                    df_fc[df_fc["sigla_empresa"].isin(empresas_neg)],
-                    RUBRICAS["fc_subvencao"]
-                )
-                if not df_subv.empty:
-                    df_subv_plot = df_subv.assign(valor_mi=lambda x: x["valor"]/1e6)
-                    fig_fco = px.bar(df_subv_plot, x="exercicio", y="valor_mi",
-                        color="sigla_empresa", barmode="group",
-                        labels={"valor_mi":"R$ Mi","exercicio":"Ano"},
-                        title="Subvenção para Custeio (proxy FCO)",
-                        template="plotly_white")
-                    fig_fco.update_traces(
-                        hovertemplate="%{fullData.name}: R$ %{y:,.1f} Mi<extra></extra>")
-                    fig_fco.update_layout(height=320,
-                        legend=dict(orientation="h",y=1.1))
-                    st.plotly_chart(fig_fco, use_container_width=True)
-                else:
-                    st.info("Dados de fluxo de caixa não disponíveis para estas empresas.")
-
-    st.divider()
-    botoes_download(df_pl.assign(valor_mi=lambda x: x["valor"]/1e6),
-                    "estatais_balanco_pl","PL")
-
 # ==============================================================================
 # ABA 4 — RELAÇÕES COM TESOURO
 # ==============================================================================
+# ==============================================================================
+# TRECHO ATUALIZADO: ABA "RELAÇÕES COM TESOURO"
+# Substitui o bloco "with tab_trs:" no 04_Estatais.py
+# ==============================================================================
+
+# --- ABA 4 — RELAÇÕES COM TESOURO ---
 with tab_trs:
     st.markdown("### Relações Financeiras com o Tesouro Nacional")
 
-    with st.expander("ℹ️ Metodologia e contas utilizadas"):
-        st.markdown("""
-**Inspiração:** Pellegrini (2019) — *Empresas estatais federais: relações com o Tesouro e valor*, Ipea.
 
-**Fontes dos dados:** Fluxo de Caixa e DRE das demonstrações financeiras (SEST/MGI via LAI).
+    # ----- Códigos por família (dependentes + não dependentes) -----
+    CODIGOS = {
+        "Aportes de Capital":       [400700, 316000],
+        "AFAC Recebido":            [400600, 315000],
+        "Subvenção para Custeio":   [400800],            # só dependentes
+        "Dividendos pagos à União": [400411, 311110],
+        "JCP pago à União":         [400421, 311210],
+    }
 
-**Contas utilizadas (código + nome):**
+    def buscar_multiplos_codigos(df_fc, codigos):
+        """Busca em múltiplos códigos de rubrica e consolida."""
+        df = df_fc[df_fc["rubrica"].isin(codigos)]
+        if df.empty:
+            return pd.DataFrame()
+        return (
+            df.groupby(["exercicio", "sigla_empresa", "dependencia", "setor"])["valor"]
+              .sum().reset_index()
+        )
 
-| Tipo | Código | Rubrica |
-|---|---|---|
-| Aporte de Capital | 400700 | Aporte de Capital da União |
-| AFAC Recebido | 400600 | Recebimentos de AFAC da União |
-| Subvenção (DRE) | 400800 | Subvenção para Custeio |
-| Dividendos pagos à União | 400411 | Dividendos Pagos para UNIÃO |
-| JCP pago à União | 400421 | JCP Pagos para UNIÃO |
+    # Coleta dados por categoria
+    dados = {
+        nome: buscar_multiplos_codigos(df_fc, cods)
+        for nome, cods in CODIGOS.items()
+    }
 
-**Saldo líquido:** (Aportes + AFAC + Subvenção) − (Dividendos + JCP)
-- Positivo = Tesouro transferiu mais do que recebeu
-- Negativo = Estatais devolveram mais do que receberam
-        """)
+    # Normaliza sinais — dividendos/JCP vêm negativos no FC
+    # Convertemos para positivo na exibição (entrada para a União)
+    for nome in ["Dividendos pagos à União", "JCP pago à União"]:
+        if not dados[nome].empty:
+            dados[nome]["valor"] = dados[nome]["valor"].abs()
 
-    df_aportes = pegar_por_rubrica(df_fc, RUBRICAS["fc_aporte_capital_uniao"])
-    df_afac    = pegar_por_rubrica(df_fc, RUBRICAS["fc_afac_uniao"])
-    df_subv    = pegar_por_rubrica(df_fc, RUBRICAS["fc_subvencao"])
-    df_divs    = pegar_por_rubrica(df_fc, RUBRICAS["fc_dividendos_uniao"])
-    df_jcp     = pegar_por_rubrica(df_fc, RUBRICAS["fc_jcp_uniao"])
-
-    def agg_tipo(df, nome):
-        if df.empty: return pd.DataFrame()
+    def agg_anual(df, nome):
+        if df.empty:
+            return pd.DataFrame()
         return (df.groupby("exercicio")["valor"].sum().reset_index()
-                  .assign(tipo=nome, valor_mi=lambda x: x["valor"]/1e6))
+                  .assign(tipo=nome, valor_mi=lambda x: x["valor"] / 1e6))
 
-    df_trs = pd.concat([
-        agg_tipo(df_aportes, "Aportes de Capital"),
-        agg_tipo(df_afac,    "AFAC Recebido"),
-        agg_tipo(df_subv,    "Subvenção para Custeio"),
-        agg_tipo(df_divs,    "Dividendos pagos à União"),
-        agg_tipo(df_jcp,     "JCP pago à União"),
-    ]).dropna()
+    df_trs = pd.concat(
+        [agg_anual(dados[nome], nome) for nome in CODIGOS.keys()],
+        ignore_index=True
+    ).dropna()
 
     if not df_trs.empty:
         fig = px.bar(df_trs, x="exercicio", y="valor_mi", color="tipo",
@@ -698,36 +739,41 @@ with tab_trs:
             })
         fig.update_traces(
             hovertemplate="%{fullData.name}: R$ %{y:,.1f} Mi<extra></extra>")
-        fig.update_layout(height=420, legend=dict(orientation="h",y=1.1))
+        fig.update_layout(height=420, legend=dict(orientation="h", y=1.1))
         st.plotly_chart(fig, use_container_width=True)
 
-    # Saldo líquido
+    # ----- Saldo líquido -----
     st.divider()
     st.markdown("##### Saldo Líquido: União → Estatais")
     st.caption("Positivo = Tesouro transferiu mais. Negativo = Estatais devolveram mais.")
 
-    anos_trs = sorted(set(
-        [e for df in [df_aportes,df_afac,df_subv,df_divs,df_jcp]
-         if not df.empty for e in df["exercicio"].unique()]
+    anos_todos = sorted(set(
+        e for nome in CODIGOS.keys() if not dados[nome].empty
+        for e in dados[nome]["exercicio"].unique()
     ))
 
-    if anos_trs:
+    if anos_todos:
         def tot(df):
             return df.groupby("exercicio")["valor"].sum() if not df.empty else pd.Series(dtype=float)
 
-        df_saldo = pd.DataFrame(index=anos_trs)
-        df_saldo["entrada"] = tot(pd.concat([df_aportes,df_afac,df_subv]
-                                            if not df_aportes.empty else [pd.DataFrame()]))
-        df_saldo["saida"]   = tot(pd.concat([df_divs,df_jcp]
-                                            if not df_divs.empty else [pd.DataFrame()]))
+        df_saldo = pd.DataFrame(index=anos_todos)
+        df_saldo["entrada"] = (
+            tot(dados["Aportes de Capital"])
+              .add(tot(dados["AFAC Recebido"]), fill_value=0)
+              .add(tot(dados["Subvenção para Custeio"]), fill_value=0)
+        )
+        df_saldo["saida"] = (
+            tot(dados["Dividendos pagos à União"])
+              .add(tot(dados["JCP pago à União"]), fill_value=0)
+        )
         df_saldo = df_saldo.fillna(0)
         df_saldo["saldo"] = (df_saldo["entrada"] - df_saldo["saida"]) / 1e6
-        df_saldo = df_saldo.reset_index().rename(columns={"index":"exercicio"})
+        df_saldo = df_saldo.reset_index().rename(columns={"index": "exercicio"})
 
         fig2 = go.Figure()
         fig2.add_trace(go.Bar(
             x=df_saldo["exercicio"], y=df_saldo["saldo"],
-            marker_color=[CORES["vermelho"] if v>0 else CORES["verde"]
+            marker_color=[CORES["vermelho"] if v > 0 else CORES["verde"]
                           for v in df_saldo["saldo"]],
             hovertemplate="%{x}: R$ %{y:,.1f} Mi<extra></extra>",
             showlegend=False
@@ -738,47 +784,97 @@ with tab_trs:
             template="plotly_white", height=340,
             shapes=[dict(type="line",
                 x0=df_saldo["exercicio"].min(), x1=df_saldo["exercicio"].max(),
-                y0=0, y1=0, line=dict(color="black",width=1,dash="dash"))]
+                y0=0, y1=0, line=dict(color="black", width=1, dash="dash"))]
         )
         st.plotly_chart(fig2, use_container_width=True)
 
-    # Detalhamento por empresa
+    # ----- Detalhamento por empresa com ordenação dinâmica -----
     st.divider()
     st.markdown("##### Detalhamento por Empresa")
+
     det_list = []
-    for df_t, nome in [(df_aportes,"Aportes"),(df_afac,"AFAC"),
-                       (df_subv,"Subvenção"),(df_divs,"Dividendos"),(df_jcp,"JCP")]:
+    for nome, df_t in dados.items():
         if not df_t.empty:
             d = df_t.copy()
-            d["tipo"] = nome
+            d["tipo"]     = nome
             d["valor_mi"] = d["valor"] / 1e6
             det_list.append(d)
 
     if det_list:
         df_det = pd.concat(det_list)
-        ano_det = st.selectbox("Ano:", sorted(df_det["exercicio"].unique(), reverse=True),
-                               key="trs_ano")
-        df_det_ano = df_det[df_det["exercicio"]==ano_det]
-        fig3 = px.bar(df_det_ano, x="valor_mi", y="sigla_empresa",
-            color="tipo", orientation="h", barmode="group",
-            title=f"Fluxo por Empresa — {ano_det} (R$ Mi)",
-            labels={"valor_mi":"R$ Mi","sigla_empresa":"","tipo":""},
-            template="plotly_white",
-            color_discrete_map={
-                "Aportes":    CORES["vermelho"],
-                "AFAC":       "#E74C3C",
-                "Subvenção":  CORES["laranja"],
-                "Dividendos": CORES["verde"],
-                "JCP":        "#1E8449",
-            })
-        fig3.update_traces(
-            hovertemplate="%{fullData.name}: R$ %{x:,.1f} Mi<extra></extra>")
-        fig3.update_layout(
-            height=max(420,df_det_ano["sigla_empresa"].nunique()*30),
-            legend=dict(orientation="h",y=1.1))
-        st.plotly_chart(fig3, use_container_width=True)
-        st.divider()
-        botoes_download(df_det, "estatais_relacoes_tesouro","Tesouro")
+
+        col_t1, col_t2 = st.columns([1, 2])
+        with col_t1:
+            ano_det = st.selectbox("Ano:",
+                sorted(df_det["exercicio"].unique(), reverse=True),
+                key="trs_ano")
+        with col_t2:
+            # Permite filtrar tipos para habilitar ordenação decrescente
+            tipos_disp = sorted(df_det["tipo"].unique())
+            tipos_sel = st.multiselect(
+                "Tipos de fluxo:",
+                options=tipos_disp,
+                default=tipos_disp,
+                key="trs_tipos"
+            )
+
+        if not tipos_sel:
+            st.warning("Selecione ao menos um tipo de fluxo.")
+        else:
+            df_det_ano = df_det[
+                (df_det["exercicio"] == ano_det) &
+                (df_det["tipo"].isin(tipos_sel))
+            ].copy()
+
+            # ----- LÓGICA DE ORDENAÇÃO -----
+            if len(tipos_sel) == 1:
+                # Um único tipo: ordena empresas pelo valor (decrescente)
+                ordem_empresas = (
+                    df_det_ano.sort_values("valor_mi", ascending=True)
+                              ["sigla_empresa"].tolist()
+                )
+                df_det_ano["sigla_empresa"] = pd.Categorical(
+                    df_det_ano["sigla_empresa"],
+                    categories=ordem_empresas, ordered=True
+                )
+                titulo = f"{tipos_sel[0]} por Empresa — {ano_det} (R$ Mi)"
+            else:
+                # Múltiplos tipos: ordena pelo total de cada empresa
+                totais = (
+                    df_det_ano.groupby("sigla_empresa")["valor_mi"]
+                              .apply(lambda s: s.abs().sum())
+                              .sort_values(ascending=True)
+                )
+                df_det_ano["sigla_empresa"] = pd.Categorical(
+                    df_det_ano["sigla_empresa"],
+                    categories=totais.index.tolist(), ordered=True
+                )
+                titulo = f"Fluxo por Empresa — {ano_det} (R$ Mi)"
+
+            df_det_ano = df_det_ano.sort_values("sigla_empresa")
+
+            fig3 = px.bar(df_det_ano, x="valor_mi", y="sigla_empresa",
+                color="tipo", orientation="h", barmode="group",
+                title=titulo,
+                labels={"valor_mi":"R$ Mi","sigla_empresa":"","tipo":""},
+                template="plotly_white",
+                color_discrete_map={
+                    "Aportes de Capital":       CORES["vermelho"],
+                    "AFAC Recebido":            "#E74C3C",
+                    "Subvenção para Custeio":   CORES["laranja"],
+                    "Dividendos pagos à União": CORES["verde"],
+                    "JCP pago à União":         "#1E8449",
+                })
+            fig3.update_traces(
+                hovertemplate="%{fullData.name}: R$ %{x:,.1f} Mi<extra></extra>")
+            fig3.update_layout(
+                height=max(420, df_det_ano["sigla_empresa"].nunique() * 30),
+                legend=dict(orientation="h", y=1.1)
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+
+            st.divider()
+            botoes_download(df_det_ano, "estatais_relacoes_tesouro", "Tesouro")
 
 # ==============================================================================
 # ABA 5 — DVA

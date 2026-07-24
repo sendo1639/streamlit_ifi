@@ -250,7 +250,7 @@ def calcular_datas_pendentes() -> tuple:
     if not existentes:
         logger.info("Tabela não encontrada. Coletando toda a janela disponível.")
     elif not pendentes:
-        logger.info(f"BigQuery já atualizado. Nenhum dia pendente.")
+        logger.info("BigQuery já atualizado. Nenhum dia pendente.")
     else:
         logger.info(f"Dias já no BigQuery  : {sorted(disponiveis & existentes)}")
         logger.info(f"Dias pendentes       : {pendentes}")

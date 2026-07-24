@@ -34,6 +34,10 @@ jobs:
           echo '${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}' > bq_key.json
           echo "GOOGLE_APPLICATION_CREDENTIALS=$GITHUB_WORKSPACE/bq_key.json" >> $GITHUB_ENV
 
+      
+      - name: Manutenção - Renovação de Tabelas (evitar expiração Sandbox)
+        run: python backend_etl/scripts/macro/renovar_tabelas_bigquery.py
+
       - name: ETL 1 - Macroeconômico (BCB)
         run: python backend_etl/scripts/macro/etl_bcb.py
 

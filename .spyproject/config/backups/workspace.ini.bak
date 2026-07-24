@@ -4,7 +4,7 @@ save_data_on_exit = True
 save_history = True
 save_non_project_files = False
 project_type = 'empty-project-type'
-recent_files = []
+recent_files = ['\\\\DRU\\IFI\\NovaRede_IFI\\Dados\\monitor_economia_ifi\\backend_etl\\scripts\\utils.py', '\\\\DRU\\IFI\\NovaRede_IFI\\Dados\\monitor_economia_ifi\\backend_etl\\scripts\\macro\\etl_anbima.py', '\\\\DRU\\IFI\\NovaRede_IFI\\Dados\\monitor_economia_ifi\\.github\\workflows\\main_etl.yml', '\\\\DRU\\IFI\\NovaRede_IFI\\Dados\\monitor_economia_ifi\\frontend_dashboard\\query_engine.py', '\\\\DRU\\IFI\\NovaRede_IFI\\Dados\\monitor_economia_ifi\\backend_etl\\scripts\\macro\\renovar_tabelas_bigquery.py', 'backend_etl\\scripts\\macro\\recuperar_anbima_staging.py']
 
 [main]
 version = 0.2.0
