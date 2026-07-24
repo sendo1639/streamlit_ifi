@@ -59,23 +59,35 @@ except ImportError as e:
 
 DATASET_ID = 'dados_macroeconomicos'
 
-api = Expectativas()
+api = Expectativas(timeout=300)
 
 
 # ==============================================================================
 # COLETA — um endpoint inteiro por vez, sem filtro de indicador
 # ==============================================================================
-def coletar_endpoint(nome_endpoint: str) -> pd.DataFrame:
-    logger.info(f"Coletando {nome_endpoint} (sem filtro — endpoint inteiro)...")
-    try:
-        ep = api.get_endpoint(nome_endpoint)
-        df = ep.query().collect()
-        logger.info(f"  ✅ {len(df):,} linha(s) | "
-                    f"{df['Indicador'].nunique()} indicador(es) distinto(s)")
-        return df
-    except Exception as e:
-        logger.error(f"  ❌ Erro ao coletar {nome_endpoint}: {e}")
-        return pd.DataFrame()
+def coletar_endpoint(nome_endpoint: str, tentativas: int = 3) -> pd.DataFrame:
+    """
+    Coleta um endpoint inteiro, sem filtro. Com retry e timeout crescente
+    para endpoints mais densos (ex: Mensais, que tem granularidade mensal
+    de DataReferencia e por isso gera bem mais linhas que o Anuais).
+    """
+    timeouts = [120, 300, 600]
+    for tentativa in range(1, tentativas + 1):
+        timeout_atual = timeouts[min(tentativa - 1, len(timeouts) - 1)]
+        logger.info(f"Coletando {nome_endpoint} (tentativa {tentativa}/{tentativas}, "
+                    f"timeout={timeout_atual}s)...")
+        try:
+            ep = api.get_endpoint(nome_endpoint)
+            df = ep.query().collect(timeout=timeout_atual)
+            logger.info(f"  ✅ {len(df):,} linha(s) | "
+                        f"{df['Indicador'].nunique()} indicador(es) distinto(s)")
+            return df
+        except Exception as e:
+            logger.warning(f"  ⚠️  Tentativa {tentativa} falhou: {e}")
+            if tentativa == tentativas:
+                logger.error(f"  ❌ Todas as tentativas falharam para {nome_endpoint}.")
+                return pd.DataFrame()
+    return pd.DataFrame()
 
 
 # ==============================================================================
