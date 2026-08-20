@@ -45,9 +45,11 @@ jobs:
         run: python backend_etl/scripts/fiscal/etl_rtn.py
 
       - name: ETL 3 - Social Mensal (Replace)
+        continue-on-error: true
         run: python backend_etl/scripts/social/etl_social.py
 
       - name: ETL 4 - Social Histórico (Append)
+        continue-on-error: true
         run: python backend_etl/scripts/social/etl_historico_pab_ae.py
 
       # ------------------------------------------------------------------
