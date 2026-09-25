@@ -46,7 +46,17 @@ DATASET_ID = 'dados_macroeconomicos'
 TABELA_ID = 'banco_central_sgs'
 TIMEOUT_SECONDS = 30
 MAX_RETRIES = 3
-START_YEAR_CHUNKING = 1995
+# Início do download fracionado (usado sempre nas séries diárias — a API limita
+# a 10 anos por consulta — e como plano B nas demais):
+#  - séries DIÁRIAS começam em 1995 de propósito: antes do Plano Real, dólar e
+#    Selic estão em moedas/regimes antigos (ex.: dólar = 2.828,00 em 1984);
+#  - as demais começam em 1980, antes da série mais antiga. Em 25/09/2026, no
+#    GitHub Actions, o download completo do PIB mensal (4380) falhou, o
+#    fracionado começou em 1995 e 1990–1994 se perderam.
+# Blocos anteriores ao início da série voltam vazios (404), sem custo relevante.
+START_YEAR_CHUNKING = 1980
+START_YEAR_CHUNKING_DIARIAS = 1995
+SERIES_DIARIAS = {'1', '432', '1178'}
 CHUNK_SIZE_YEARS = 5
 URL_SGS = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados?formato=json"
 
@@ -142,12 +152,13 @@ def processar_serie_bcb(codigo_sgs: str, nome_indicador: str) -> pd.DataFrame:
 
     # Estratégia 2: Download Fracionado (Chunking)
     except (ValueError, requests.exceptions.RequestException):
-        logger.info(f"   -> Iniciando download fracionado ({START_YEAR_CHUNKING}-hoje)...")
+        inicio = START_YEAR_CHUNKING_DIARIAS if codigo_sgs in SERIES_DIARIAS else START_YEAR_CHUNKING
+        logger.info(f"   -> Iniciando download fracionado ({inicio}-hoje)...")
 
         chunks: List[pd.DataFrame] = []
         ano_atual = datetime.now().year
 
-        for ano_inicio in range(START_YEAR_CHUNKING, ano_atual + 1, CHUNK_SIZE_YEARS):
+        for ano_inicio in range(inicio, ano_atual + 1, CHUNK_SIZE_YEARS):
             ano_fim = min(ano_inicio + (CHUNK_SIZE_YEARS - 1), ano_atual)
             dt_ini = f"01/01/{ano_inicio}"
             dt_fim = f"31/12/{ano_fim}"

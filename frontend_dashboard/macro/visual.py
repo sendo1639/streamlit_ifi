@@ -51,19 +51,26 @@ def trimestre(data) -> str:
 # GRÁFICOS
 # ==============================================================================
 def figura_base(titulo: str = None, unidade_y: str = None, altura: int = 420) -> go.Figure:
+    """
+    Figura padrão. Legenda ABAIXO do gráfico, para nunca disputar espaço com o
+    título. Sem título, o layout não recebe a chave `title` — passar
+    `title=None` faz o Plotly escrever "undefined" no topo.
+    """
     fig = go.Figure()
     fig.update_layout(
-        title=dict(text=titulo, font=dict(size=15, color=AZUL_IFI)) if titulo else None,
         template="plotly_white",
         height=altura,
         separators=",.",
         colorway=CORES,
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        margin=dict(l=10, r=10, t=60 if titulo else 30, b=10),
+        legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="left", x=0),
+        margin=dict(l=10, r=10, t=50 if titulo else 20, b=20),
         yaxis=dict(title=unidade_y, gridcolor="#EEEEEE"),
         xaxis=dict(gridcolor="#EEEEEE"),
     )
+    if titulo:
+        fig.update_layout(title=dict(text=titulo, font=dict(size=15, color=AZUL_IFI),
+                                     x=0, xanchor="left", y=0.98, yanchor="top"))
     return fig
 
 

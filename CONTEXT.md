@@ -130,8 +130,18 @@ com `catalogo.py` (todo código de série — nunca `str.contains` no nome),
 `calculos.py` (acumulado 12m COMPOSTO — a página antiga somava; juro real).
 Consultas em `query_engine.py` (funções `sql_*` + `carregar_em_paralelo`).
 
-Status (24/09/2026): **Panorama, IBGE, Banco Central, ANBIMA e Calendário prontos**;
-falta só "Explorar e baixar".
+Status (25/09/2026): **página completa** — Panorama, IBGE, Banco Central, ANBIMA,
+Calendário e Explorar e baixar.
+- Explorar e baixar: (1) catálogo pesquisável de ~2.240 séries (SGS, SIDRA, PTAX)
+  → seleção de até 40, gráfico e download da série COMPLETA (Excel largo +
+  metadados, CSV largo/longo); (2) Focus com filtros, semanal ou diário; (3) bases
+  completas de qualquer tabela. CSV sempre com ';' e vírgula decimal (Excel pt-BR).
+  Focus anual (~1,06 mi linhas) passa do limite do Excel → só CSV zip (~13 MB);
+  leva ~2,5 min para sair do BigQuery (o Python da rede não tem
+  google-cloud-bigquery-storage) — arquivo pronto fica em cache 1h.
+- Gráficos: legenda SEMPRE abaixo do gráfico; nunca passar `title=None` ao Plotly
+  (ele escreve "undefined"). Verificação visual: exportar a figura para HTML e
+  fotografar com o Edge headless (`msedge --headless=new --screenshot=...`).
 - BCB: quadro no formato do Relatório Focus (há 4 sem./1 sem./hoje, ▲▼= com
   semanas seguidas, comparação de SEXTA a sexta — o Focus tem posição DIÁRIA),
   seletor de data (reproduz o "Focus de 04/09" do RAF 116 — conferido), evolução
@@ -149,6 +159,11 @@ importando bibliotecas do Python da rede (`U:\softwares\python_313`) — custo
 pré-existente, independe da página.
 Teste: `streamlit.testing.v1.AppTest` com o Python da rede; trocar aba via
 `at.session_state["abas_macro"] = "🇧🇷 IBGE"` (sub-abas: `abas_bcb`, `abas_ibge`).
+
+1º run do Actions com o código novo (25/09/2026): SGS gravou as 33 séries (BCB
+acessível do GitHub). Revelou que o fracionado começava em 1995 e perdia
+1990–1994 do PIB mensal quando o download completo falhava — corrigido
+(séries diárias seguem começando em 1995 de propósito: pré-Real).
 
 **Pendente:** confirmar no 1º run do GitHub Actions que Olinda (BCB) e
 SIDRA (IBGE) não bloqueiam IP de datacenter; **reescrever

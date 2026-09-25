@@ -1,7 +1,8 @@
 
 # Ignorar dados pesados e temporários
 data/
-_pycache_/
+__pycache__/
+*.pyc
 *.csv
 *.xlsx
 *.parquet

@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from interface_utils import configurar_interface_ifi
 from query_engine import get_status_macro
-from macro import panorama, calendario, anbima, bcb, ibge
+from macro import panorama, calendario, anbima, bcb, ibge, explorar
 from macro import visual as v
 
 st.set_page_config(page_title="Macroeconomia | IFI", page_icon="📈", layout="wide")
@@ -28,8 +28,7 @@ st.caption("Conjuntura econômica a partir das fontes oficiais — IBGE, Banco C
 # Abas preguiçosas: só a aba aberta executa (e consulta o BigQuery)
 abas = v.abas(["📊 Panorama", "🇧🇷 IBGE", "🏦 Banco Central", "📐 ANBIMA", "🗓️ Calendário",
                "🔎 Explorar e baixar"], chave="abas_macro")
-secoes = [panorama.render, ibge.render, bcb.render, anbima.render, calendario.render,
-          lambda: v.em_construcao("Explorar e baixar: todas as séries do monitor")]
+secoes = [panorama.render, ibge.render, bcb.render, anbima.render, calendario.render, explorar.render]
 
 for aba, secao in zip(abas, secoes):
     with aba:

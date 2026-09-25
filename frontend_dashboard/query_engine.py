@@ -268,6 +268,72 @@ SQL_CALENDARIO = f"""
 """
 
 
+# --- Catálogo (aba Explorar e baixar) -------------------------------------------
+SQL_CATALOGO_SGS = f"""
+    SELECT codigo_sgs, ANY_VALUE(nome_variavel) AS nome, MIN(DATE(data)) AS inicio,
+           MAX(DATE(data)) AS fim, COUNT(*) AS observacoes
+    FROM `{DS_MACRO}.banco_central_sgs`
+    GROUP BY codigo_sgs
+"""
+
+SQL_CATALOGO_IBGE = f"""
+    SELECT pesquisa, tabela, ANY_VALUE(tabela_descricao) AS tabela_descricao,
+           variavel_codigo, ANY_VALUE(variavel) AS variavel, ANY_VALUE(unidade) AS unidade,
+           categoria, ANY_VALUE(periodicidade) AS periodicidade,
+           MIN(DATE(data)) AS inicio, MAX(DATE(data)) AS fim, COUNT(*) AS observacoes
+    FROM `{DS_MACRO}.ibge_sidra`
+    GROUP BY pesquisa, tabela, variavel_codigo, categoria
+"""
+
+SQL_FOCUS_INDICADORES = f"""
+    SELECT Indicador AS indicador, ARRAY_AGG(DISTINCT DataReferencia ORDER BY DataReferencia) AS anos,
+           MIN(DATE(Data)) AS inicio, MAX(DATE(Data)) AS fim
+    FROM `{DS_MACRO}.focus_expectativas_anuais`
+    WHERE IndicadorDetalhe IS NULL
+    GROUP BY Indicador ORDER BY Indicador
+"""
+
+
+def sql_ibge_series(combinacoes: tuple) -> str:
+    """Várias séries do SIDRA de uma vez. combinacoes = ((tabela, variavel, categoria|None), ...)."""
+    condicoes = []
+    for tabela, variavel, categoria in combinacoes:
+        cat = "categoria IS NULL" if categoria is None else f"categoria = '{categoria}'"
+        condicoes.append(f"(tabela = {int(tabela)} AND variavel_codigo = {int(variavel)} AND {cat})")
+    return f"""
+        SELECT DATE(data) AS data, tabela, variavel_codigo, categoria, valor
+        FROM `{DS_MACRO}.ibge_sidra`
+        WHERE {' OR '.join(condicoes)}
+        ORDER BY data
+    """
+
+
+def carregar_tabela_completa(tabela: str) -> pd.DataFrame:
+    """
+    Tabela inteira do dataset de macro, para download irrestrito. Sem cache de
+    propósito: as do Focus passam de 1 milhão de linhas — é gerada sob demanda.
+    """
+    return get_bq_client().query(f"SELECT * FROM `{DS_MACRO}.{tabela}`").to_dataframe()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def info_tabelas_macro() -> pd.DataFrame:
+    """Linhas, tamanho e última atualização de cada tabela do dataset de macro."""
+    client = get_bq_client()
+    tabelas = [t.table_id for t in client.list_tables(DS_MACRO)]
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        info = list(executor.map(lambda t: client.get_table(f"{DS_MACRO}.{t}"), tabelas))
+    df = pd.DataFrame({
+        'tabela': [t.table_id for t in info],
+        'linhas': [t.num_rows for t in info],
+        'mb': [t.num_bytes / 1e6 for t in info],
+        'atualizada_em': [t.modified for t in info],
+    })
+    df['atualizada_em'] = (pd.to_datetime(df['atualizada_em'], utc=True)
+                           .dt.tz_convert('America/Sao_Paulo').dt.tz_localize(None))
+    return df
+
+
 def _com_datas(df: pd.DataFrame) -> pd.DataFrame:
     if not df.empty and 'data' in df.columns:
         df['data'] = pd.to_datetime(df['data'])
