@@ -2,6 +2,7 @@ import sys
 import os
 import pandas as pd
 import streamlit as st
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 # ==============================================================================
@@ -173,6 +174,189 @@ def carregar_dados_estatais_2025():
         # Rubrica como int para compatibilizar com filtros (vem como string do BQ)
         df['rubrica'] = pd.to_numeric(df['rubrica'], errors='coerce').astype('Int64')
     return df
+
+# ==============================================================================
+# 3b. MACROECONOMIA — consultas filtradas no BigQuery (página 01)
+# ==============================================================================
+# Cada consulta traz só o que o gráfico usa: as tabelas do Focus têm milhões de
+# linhas e não podem ser carregadas inteiras. O SQL é montado pelas funções
+# sql_*; carregar_* executa uma consulta e carregar_em_paralelo executa várias
+# ao mesmo tempo (cada ida ao BigQuery leva ~2s — em série, o Panorama levaria
+# ~20s na primeira carga). Parâmetros de lista são tuplas (exigência do cache).
+DS_MACRO = f"{PROJECT_ID}.dados_macroeconomicos"
+
+
+def _lista_sql(valores) -> str:
+    return ", ".join(f"'{v}'" for v in valores)
+
+
+def sql_sgs(codigos: tuple) -> str:
+    """Séries do SGS (BCB). Colunas: data, codigo_sgs, nome_variavel, valor."""
+    return f"""
+        SELECT DATE(data) AS data, codigo_sgs, nome_variavel, valor
+        FROM `{DS_MACRO}.banco_central_sgs`
+        WHERE codigo_sgs IN ({_lista_sql(codigos)})
+        ORDER BY codigo_sgs, data
+    """
+
+
+def sql_ibge(tabela: int, variaveis: tuple = None, categorias: tuple = None) -> str:
+    """Uma tabela do SIDRA (ibge_sidra), opcionalmente filtrada por variável e categoria."""
+    filtros = [f"tabela = {int(tabela)}"]
+    if variaveis:
+        filtros.append(f"variavel_codigo IN ({', '.join(str(int(v)) for v in variaveis)})")
+    if categorias:
+        filtros.append(f"categoria IN ({_lista_sql(categorias)})")
+    return f"""
+        SELECT DATE(data) AS data, periodo, pesquisa, tabela, variavel_codigo, variavel,
+               unidade, categoria_codigo, categoria, valor
+        FROM `{DS_MACRO}.ibge_sidra`
+        WHERE {' AND '.join(filtros)}
+        ORDER BY variavel_codigo, categoria, data
+    """
+
+
+def sql_focus_anual(indicadores: tuple, anos_referencia: tuple, desde: str,
+                    base_calculo: int = 0) -> str:
+    """
+    Focus — expectativas anuais (mediana, média, dispersão, respondentes).
+    base_calculo 0 = respostas dos últimos 30 dias (padrão do Relatório Focus);
+    1 = últimos 5 dias úteis. Só o IndicadorDetalhe nulo (agregado do indicador;
+    no Câmbio é o valor de fim de ano).
+    """
+    return f"""
+        SELECT DATE(Data) AS data, Indicador AS indicador, DataReferencia AS ano_referencia,
+               Mediana AS mediana, Media AS media, DesvioPadrao AS desvio,
+               Minimo AS minimo, Maximo AS maximo, numeroRespondentes AS respondentes
+        FROM `{DS_MACRO}.focus_expectativas_anuais`
+        WHERE Indicador IN ({_lista_sql(indicadores)})
+          AND DataReferencia IN ({_lista_sql(anos_referencia)})
+          AND baseCalculo = {int(base_calculo)}
+          AND IndicadorDetalhe IS NULL
+          AND Data >= '{desde}'
+        ORDER BY indicador, ano_referencia, data
+    """
+
+
+def sql_focus_12m(indicador: str = 'IPCA', suavizada: str = 'S',
+                  base_calculo: int = 0, desde: str = '2000-01-01') -> str:
+    """Focus — inflação esperada para os próximos 12 meses."""
+    return f"""
+        SELECT DATE(Data) AS data, Mediana AS mediana, Media AS media,
+               Minimo AS minimo, Maximo AS maximo, numeroRespondentes AS respondentes
+        FROM `{DS_MACRO}.focus_inflacao_12meses`
+        WHERE Indicador = '{indicador}' AND Suavizada = '{suavizada}'
+          AND baseCalculo = {int(base_calculo)} AND Data >= '{desde}'
+        ORDER BY data
+    """
+
+
+def sql_ptax(moedas: tuple = ('USD',)) -> str:
+    """PTAX de fechamento. Colunas: data, moeda, compra, venda."""
+    return f"""
+        SELECT DATE(data) AS data, moeda, cotacaoCompra AS compra, cotacaoVenda AS venda
+        FROM `{DS_MACRO}.ptax_cotacoes`
+        WHERE moeda IN ({_lista_sql(moedas)})
+        ORDER BY moeda, data
+    """
+
+
+SQL_CALENDARIO = f"""
+    SELECT DATE(data) AS data, hora, fonte, evento, titulo, referencia, tema, dado_no_monitor
+    FROM `{DS_MACRO}.calendario_divulgacoes`
+    ORDER BY data, hora
+"""
+
+
+def _com_datas(df: pd.DataFrame) -> pd.DataFrame:
+    if not df.empty and 'data' in df.columns:
+        df['data'] = pd.to_datetime(df['data'])
+    return df
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def carregar_em_paralelo(consultas: tuple) -> dict:
+    """
+    Executa várias consultas ao mesmo tempo. `consultas` = ((nome, sql), ...).
+    Retorna {nome: DataFrame}; uma consulta que falha vira DataFrame vazio
+    (e o erro aparece na tela), sem derrubar as demais.
+    """
+    client = get_bq_client()
+
+    def rodar(item):
+        nome, sql = item
+        try:
+            return nome, _com_datas(client.query(sql).to_dataframe()), None
+        except Exception as e:
+            return nome, pd.DataFrame(), f"{nome}: {e}"
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        resultados = list(executor.map(rodar, consultas))
+    erros = [erro for _, _, erro in resultados if erro]
+    if erros:
+        st.error("⚠️ Erro na consulta ao BigQuery — " + " | ".join(erros))
+    return {nome: df for nome, df, _ in resultados}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def carregar_sgs(codigos: tuple) -> pd.DataFrame:
+    return _com_datas(executar_query(sql_sgs(codigos)))
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def carregar_ibge(tabela: int, variaveis: tuple = None, categorias: tuple = None) -> pd.DataFrame:
+    return _com_datas(executar_query(sql_ibge(tabela, variaveis, categorias)))
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def carregar_focus_anual(indicadores: tuple, anos_referencia: tuple, desde: str,
+                         base_calculo: int = 0) -> pd.DataFrame:
+    return _com_datas(executar_query(sql_focus_anual(indicadores, anos_referencia, desde, base_calculo)))
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def carregar_focus_12m(indicador: str = 'IPCA', suavizada: str = 'S',
+                       base_calculo: int = 0, desde: str = '2000-01-01') -> pd.DataFrame:
+    return _com_datas(executar_query(sql_focus_12m(indicador, suavizada, base_calculo, desde)))
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def carregar_ptax(moedas: tuple = ('USD',)) -> pd.DataFrame:
+    return _com_datas(executar_query(sql_ptax(moedas)))
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def carregar_calendario() -> pd.DataFrame:
+    return _com_datas(executar_query(SQL_CALENDARIO))
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def get_status_macro() -> pd.DataFrame:
+    """
+    Última atualização de cada tabela da página de Macro, em horário de Brasília.
+    Usa o metadado 'modified' do BigQuery (sempre UTC) — a coluna data_carga
+    mistura UTC (GitHub Actions) com horário local (execução manual).
+    """
+    tabelas = {
+        'BCB – SGS': 'banco_central_sgs',
+        'BCB – Focus': 'focus_expectativas_anuais',
+        'BCB – PTAX': 'ptax_cotacoes',
+        'IBGE – SIDRA': 'ibge_sidra',
+        'ANBIMA – ETTJ': 'anbima_ettj',
+        'Calendário': 'calendario_divulgacoes',
+    }
+    try:
+        client = get_bq_client()
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            modificadas = list(executor.map(
+                lambda t: client.get_table(f"{DS_MACRO}.{t}").modified, tabelas.values()))
+    except Exception:
+        return pd.DataFrame(columns=['fonte', 'atualizada_em'])
+    df = pd.DataFrame({'fonte': list(tabelas), 'atualizada_em': modificadas})
+    df['atualizada_em'] = (pd.to_datetime(df['atualizada_em'], utc=True)
+                           .dt.tz_convert('America/Sao_Paulo').dt.tz_localize(None))
+    return df
+
 
 # ==============================================================================
 # 4. MONITORAMENTO E STATUS (Sinal de Vida)

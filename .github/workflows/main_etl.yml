@@ -35,20 +35,26 @@ jobs:
           echo "GOOGLE_APPLICATION_CREDENTIALS=$GITHUB_WORKSPACE/bq_key.json" >> $GITHUB_ENV
 
       
+      # Cada ETL tem if: always(): uma falha marca o run como falho (visível
+      # no GitHub), mas não impede os ETLs seguintes de rodarem.
       - name: Manutenção - Renovação de Tabelas (evitar expiração Sandbox)
         run: python backend_etl/scripts/macro/renovar_tabelas_bigquery.py
 
       - name: ETL 1 - Macroeconômico (BCB)
+        if: always()
         run: python backend_etl/scripts/macro/etl_bcb.py
 
       - name: ETL 2 - Fiscal (RTN)
+        if: always()
         run: python backend_etl/scripts/fiscal/etl_rtn.py
 
       - name: ETL 3 - Social Mensal (Replace)
+        if: always()
         continue-on-error: true
         run: python backend_etl/scripts/social/etl_social.py
 
       - name: ETL 4 - Social Histórico (Append)
+        if: always()
         continue-on-error: true
         run: python backend_etl/scripts/social/etl_historico_pab_ae.py
 
@@ -61,12 +67,33 @@ jobs:
       # ontem já estão disponíveis com folga.
       # ------------------------------------------------------------------
       - name: ETL 5 - Curva de Juros ETTJ (ANBIMA)
+        if: always()
         run: |
           FORCE_FLAG=""
           if [ "${{ github.event.inputs.force_ettj }}" == "true" ]; then
             FORCE_FLAG="--force"
           fi
           python backend_etl/scripts/macro/etl_anbima.py $FORCE_FLAG
+
+      # ETLs 6 e 7 usam a API Olinda do BCB direto (sem python-bcb).
+      - name: ETL 6 - Câmbio PTAX (BCB, recarga completa)
+        if: always()
+        run: python backend_etl/scripts/macro/etl_ptax.py
+
+      - name: ETL 7 - Expectativas Focus (BCB, incremental)
+        if: always()
+        run: python backend_etl/scripts/macro/etl_focus.py
+
+      # SIDRA: IPCA, IPCA-15, INPC, PNAD, PIM, PMS, PMC, PIB trimestral.
+      # Domínio .gov.br — se o IBGE bloquear IP do GitHub, rodar localmente.
+      - name: ETL 8 - Indicadores IBGE (SIDRA)
+        if: always()
+        run: python backend_etl/scripts/macro/etl_ibge.py
+
+      # Agenda de divulgações: API de calendário do IBGE + feeds .ics do BCB.
+      - name: ETL 9 - Calendário de divulgações (IBGE + BCB)
+        if: always()
+        run: python backend_etl/scripts/macro/etl_calendario.py
 
       - name: Remover credenciais
         if: always()

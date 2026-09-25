@@ -5,13 +5,17 @@ Usa a mesma autenticação híbrida já definida em utils.get_bq_client()
 (Streamlit Secrets -> variável de ambiente do GitHub Actions -> JSON
 local) — funciona nos dois ambientes sem código extra.
 
-Motivo desta peça existir separada de qualquer ETL: cargas incrementais
-via if_exists='append' (como o etl_anbima.py faz) NÃO resetam a
-expiração — só recriam o objeto quando é if_exists='replace'. Como a
-ANBIMA precisa continuar usando append (pra não duplicar linha), a
-proteção contra expiração precisa ser um mecanismo à parte.
+Motivo desta peça existir separada de qualquer ETL: a expiração conta
+a partir da CRIAÇÃO da tabela e nenhuma carga a reinicia — nem
+if_exists='append', nem if_exists='replace' do pandas-gbq, nem
+WRITE_TRUNCATE (os dois últimos sobrescrevem os dados mas preservam o
+objeto). Confirmado em 24/09/2026 pelos metadados: banco_central_sgs e
+rtn_* eram regravadas todo dia e mesmo assim expira = criada + 60 dias.
+Só recriar a tabela (DROP + CREATE) reinicia o relógio.
 
-Mecanismo: varre TODAS as tabelas de cada dataset listado. Para
+Mecanismo: varre TODAS as tabelas de TODOS os datasets do projeto
+(até 24/09/2026 só varria dados_macroeconomicos — as tabelas de
+estatais em dados_fiscais expiraram por isso). Para
 qualquer uma com <= LIMIAR_DIAS de expiração restante, copia para uma
 tabela temporária, confirma a contagem de linhas, apaga a original,
 recria com o mesmo nome (nova expiração de 60 dias), confirma de novo,
@@ -52,18 +56,14 @@ except ImportError as e:
 # ==============================================================================
 # CONFIGURAÇÃO
 # ==============================================================================
-DATASETS_PARA_VARRER = [
-    'dados_macroeconomicos',
-    # adicionar outros datasets aqui se necessário (ex: 'dados_fiscais')
-]
-
 LIMIAR_DIAS = 5  # renova quando restarem <= 5 dias dos 60 (decidido em 22/07/2026)
+SUFIXO_TEMP = '_renovacao_tmp'
 
 
 def renovar_tabela(client, dataset_id: str, tabela_id: str) -> bool:
     """Renova uma tabela, resetando sua expiração de 60 dias."""
     tabela_original = f"{utils.PROJECT_ID}.{dataset_id}.{tabela_id}"
-    tabela_temp     = f"{utils.PROJECT_ID}.{dataset_id}.{tabela_id}_renovacao_tmp"
+    tabela_temp     = f"{utils.PROJECT_ID}.{dataset_id}.{tabela_id}{SUFIXO_TEMP}"
 
     logger.info(f"  Renovando: {tabela_original}")
 
@@ -126,23 +126,36 @@ def renovar_tabela(client, dataset_id: str, tabela_id: str) -> bool:
     return True
 
 
-def executar():
+def executar() -> bool:
     logger.info("=" * 60)
     logger.info("RENOVAÇÃO DE TABELAS — proteção contra expiração (Sandbox)")
     logger.info("=" * 60)
 
     client = utils.get_bq_client()
     agora = datetime.now(timezone.utc)
+    falhas = []
 
-    for dataset_id in DATASETS_PARA_VARRER:
+    datasets = [d.dataset_id for d in client.list_datasets()]
+    logger.info(f"Datasets encontrados: {datasets}")
+
+    for dataset_id in datasets:
         logger.info(f"\nDataset: {dataset_id}")
         try:
             tabelas = list(client.list_tables(f"{utils.PROJECT_ID}.{dataset_id}"))
         except Exception as e:
             logger.error(f"  ❌ Não foi possível listar tabelas: {e}")
+            falhas.append(dataset_id)
             continue
 
         for item in tabelas:
+            if item.table_id.endswith(SUFIXO_TEMP):
+                logger.critical(
+                    f"  {item.table_id}: temporária de uma renovação que falhou — "
+                    f"conferir a original manualmente antes de apagar."
+                )
+                falhas.append(item.table_id)
+                continue
+
             tabela_ref = client.get_table(item.reference)
             if tabela_ref.expires is None:
                 logger.info(f"  {item.table_id}: sem expiração — ignorando.")
@@ -154,16 +167,21 @@ def executar():
                     f"  {item.table_id}: expira em {dias_restantes} dia(s) "
                     f"— renovando..."
                 )
-                renovar_tabela(client, dataset_id, item.table_id)
+                if not renovar_tabela(client, dataset_id, item.table_id):
+                    falhas.append(item.table_id)
             else:
                 logger.info(
                     f"  {item.table_id}: expira em {dias_restantes} dia(s) — OK."
                 )
 
     logger.info("\n" + "=" * 60)
-    logger.info("✅ Varredura concluída.")
+    if falhas:
+        logger.error(f"❌ Varredura concluída com falhas: {falhas}")
+    else:
+        logger.info("✅ Varredura concluída.")
     logger.info("=" * 60)
+    return not falhas
 
 
 if __name__ == "__main__":
-    executar()
+    sys.exit(0 if executar() else 1)
